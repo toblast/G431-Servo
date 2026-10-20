@@ -8,7 +8,7 @@ $buildDirectory = Join-Path $repoRoot 'build/tests/foc'
 New-Item -ItemType Directory -Force -Path $buildDirectory | Out-Null
 $source = Get-Content (Join-Path $firmwareRoot 'Core/Src/foc.c') -Raw
 $functions = ''
-foreach ($name in @('API_FOC_Torque_Enable', 'API_FOC_Torque_Disable', 'API_FOC_Set_Torque_Flux_Currents_mA')) {
+foreach ($name in @('API_FOC_Torque_Enable', 'API_FOC_Torque_Disable', 'API_FOC_Set_Torque_Flux_Currents_mA', 'FOC_Check_Current_Protection')) {
     $start = $source.IndexOf("void $name(")
     $opening = $source.IndexOf('{', $start)
     $depth = 1
@@ -20,7 +20,7 @@ foreach ($name in @('API_FOC_Torque_Enable', 'API_FOC_Torque_Disable', 'API_FOC_
     $functions += $source.Substring($start, $end - $start) + "`n"
 }
 $states = [regex]::Matches($source, '(?m)^#define FOC_STATE_.*$').Value -join "`n"
-$globals = [regex]::Matches($source, '(?m)^static (?:volatile )?(?:uint32_t|float|pid_context_t|bool) (?:foc_state|setpoint_\w+|present_Ids_mA|present_Iqs_mA|flux_pi|torque_pi|calibration_active|calibration_cancelled)[^\r\n]*;').Value -join "`n"
+$globals = [regex]::Matches($source, '(?m)^static (?:volatile )?(?:uint32_t|float|pid_context_t|bool) (?:foc_state|setpoint_\w+|present_Ids_mA|present_Iqs_mA|flux_pi|torque_pi|calibration_active|calibration_cancelled|motor_current_mA)[^\r\n]*;').Value -join "`n"
 $fixture = Get-Content (Join-Path $PSScriptRoot 'transitions.c') -Raw
 $generated = $fixture.Replace('/* GLOBALS */', $states + "`n" + $globals).Replace('/* FUNCTIONS */', $functions)
 $sourcePath = Join-Path $buildDirectory 'transitions.c'

@@ -609,6 +609,26 @@ float API_FOC_Get_Processing_Frequency()
 	return (float)foc_counter/(float)HAL_GetTick()*1000.0f;
 }
 
+static inline __attribute__((always_inline)) void FOC_Check_Current_Protection(void)
+{
+	if (foc_state == FOC_STATE_IDLE) return;
+	for (unsigned phase = 0; phase < 3; ++phase)
+	{
+		if (!isfinite(motor_current_mA[phase]))
+		{
+			hardware_fault_set(1U << HW_ERROR_BIT_INTERNAL);
+			API_FOC_Torque_Disable();
+			return;
+		}
+		if (fabsf(motor_current_mA[phase]) > SERVO_BENCH_OVERCURRENT_MA)
+		{
+			hardware_fault_set(1U << HW_ERROR_BIT_OVERLOAD);
+			API_FOC_Torque_Disable();
+			return;
+		}
+	}
+}
+
 void API_FOC_It(ADC_HandleTypeDef *hadc)
 {
 	if(hadc==&hadc1)
@@ -650,6 +670,7 @@ void API_FOC_It(ADC_HandleTypeDef *hadc)
 	if(current_samples>=3)
 	{
 		current_samples=0;
+		FOC_Check_Current_Protection();
 		API_FOC_Torque_Update();
 	}
 }

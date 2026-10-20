@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <math.h>
 #include "control_table.h"
 #include "pid.h"
 
@@ -17,6 +18,7 @@ bool control_configuration_valid(void) { return true; }
 void pid_reset(pid_context_t *ctx)
 {
     CHECK(test_primask == 1);
+
     ctx->err_last_one = ctx->err_integral = ctx->derivative_filtered = 0;
 }
 static void LL_FOC_coast(void) { ++brakes; }
@@ -74,6 +76,31 @@ int main(void)
     API_FOC_Torque_Disable();
     CHECK(calibration_active && calibration_cancelled);
     CHECK(test_primask == 1);
+    test_primask = 0;
+    calibration_active = calibration_cancelled = false;
+    regs[REG_TORQUE_ENABLE] = 1;
+    API_FOC_Torque_Enable();
+    motor_current_mA[0] = 1499;
+    motor_current_mA[1] = -1499;
+    FOC_Check_Current_Protection();
+    CHECK(foc_state == FOC_STATE_TORQUE_CONTROL && hardware_fault_status() == 0);
+    motor_current_mA[2] = 1501;
+    FOC_Check_Current_Protection();
+    CHECK(foc_state == FOC_STATE_IDLE && (hardware_fault_status() & (1U << HW_ERROR_BIT_OVERLOAD)));
+    regs[REG_HARDWARE_ERROR_STATUS] = 0;
+    motor_current_mA[2] = 0;
+    API_FOC_Torque_Enable();
+    motor_current_mA[0] = NAN;
+    FOC_Check_Current_Protection();
+    CHECK(foc_state == FOC_STATE_IDLE && (hardware_fault_status() & (1U << HW_ERROR_BIT_INTERNAL)));
+    regs[REG_HARDWARE_ERROR_STATUS] = 0;
+    motor_current_mA[0] = 1501;
+    FOC_Check_Current_Protection();
+    CHECK(hardware_fault_status() == 0);
+    foc_state = FOC_STATE_FLUX_CONTROL;
+    calibration_active = true;
+    FOC_Check_Current_Protection();
+    CHECK(foc_state == FOC_STATE_IDLE && calibration_cancelled);
     puts(failures ? "FOC transition regressions failed." : "FOC transition regressions passed.");
     return failures ? EXIT_FAILURE : EXIT_SUCCESS;
 }

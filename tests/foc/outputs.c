@@ -62,9 +62,11 @@ int main(void)
 
     const float invalid_bus[] = { 0, -1, NAN, INFINITY };
     for (unsigned i = 0; i < sizeof invalid_bus / sizeof invalid_bus[0]; ++i) {
+        regs[REG_HARDWARE_ERROR_STATUS] = 0;
         writes = 0;
         LL_FOC_set_phase_voltage(1, 0, 1, 0, invalid_bus[i]);
         CHECK(!(timer.BDTR & TIM_BDTR_MOE) && writes == 0);
+        CHECK(hardware_fault_status() & (1U << HW_ERROR_BIT_INTERNAL));
         CHECK(timer.CR1 == TIM_CR1_CEN && timer.CCER == 0x555);
     }
     LL_FOC_set_phase_voltage(NAN, 0, 1, 0, 12);

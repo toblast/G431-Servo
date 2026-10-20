@@ -169,6 +169,7 @@ extern "C" {
 #define REG_MIN_POSITION_DEG_VALUE 			-800   	// deg
 #define REG_MAX_POSITION_DEG_VALUE 			800		// deg
 #define SERVO_BENCH_MAX_CURRENT_MA             1000U
+#define SERVO_BENCH_OVERCURRENT_MA             1500U  // measured phase-current trip, provisional
 #define SERVO_BENCH_MAX_VELOCITY_DPS            360U
 #define REG_MAX_VELOCITY_DPS_VALUE             360     // rotor dps, initial bench envelope
 #define REG_MAX_ACCELERATION_DPSS_VALUE		0		// dpss
@@ -226,6 +227,7 @@ extern "C" {
 #define HW_ERROR_BIT_POSITION_SENSOR_STATUS_ERROR 1
 #define HW_ERROR_BIT_POSITION_SENSOR_NOT_RESPONDING 2
 #define HW_ERROR_BIT_POSITION_SENSOR_TIMESTAMP 3
+#define HW_ERROR_BIT_INTERNAL 3
 #define HW_ERROR_BIT_FOC_TIMEOUT 4
 #define HW_ERROR_BIT_OVERLOAD 5
 #define HW_ERROR_BIT_OVERHEATING 6
