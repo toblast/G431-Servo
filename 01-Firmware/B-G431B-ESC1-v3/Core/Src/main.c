@@ -409,7 +409,7 @@ int main(void)
   MX_FDCAN1_Init();
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
-	HAL_TIM_Base_Start(&htim6); // 1us base time
+	if (HAL_TIM_Base_Start(&htim6) != HAL_OK) Error_Handler(); // 1us base time
 
   if (eeprom_empty() && factory_reset_eeprom_regs() != HAL_OK) Error_Handler();
   load_eeprom_regs();

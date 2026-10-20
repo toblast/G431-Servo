@@ -40,7 +40,7 @@ static jmp_buf fatal_return;
 #define __HAL_TIM_SET_COMPARE(timer, channel, value) ((void)0)
 
 static int next_status(void) { return ++step == failure_step ? 1 : HAL_OK; }
-static int HAL_TIM_Base_Start(TIM_HandleTypeDef *timer) { assert(timer->Instance->BDTR == 0); return next_status(); }
+static int HAL_TIM_Base_Start(TIM_HandleTypeDef *timer) { assert(timer->Instance->BDTR == 0); return timer == &htim6 && failure_step == 8 ? 1 : next_status(); }
 static void LL_FOC_coast(void) { htim1.Instance->BDTR = 0; }
 static void Error_Handler(void) { assert(failure_step != 0); longjmp(fatal_return, 1); }
 static int HAL_OPAMP_Start(OPAMP_HandleTypeDef *opamp) { (void)opamp; return next_status(); }
@@ -74,9 +74,14 @@ static void FDCAN_Config(void)
 
 /* FOC_INIT */
 
-int main(void)
+static void run_startup(void)
 {
     /* STARTUP */
+}
+
+int main(void)
+{
+    run_startup();
     assert(adc_callbacks == 2 && can_ready);
     for (failure_step = 1; failure_step <= 7; ++failure_step) {
         step = 0;
@@ -88,6 +93,13 @@ int main(void)
         assert(step == failure_step);
         assert(htim1.Instance->BDTR == 0);
     }
-    puts("Startup callback order and seven peripheral failure paths passed.");
+    failure_step = 8;
+    can_ready = false;
+    if (setjmp(fatal_return) == 0) {
+        run_startup();
+        assert(false);
+    }
+    assert(!can_ready);
+    puts("Startup callback order, seven FOC peripheral failures and timebase failure passed.");
     return 0;
 }
