@@ -102,6 +102,11 @@ static inline __attribute__((always_inline)) void LL_FOC_set_phase_voltage( floa
 // Retained only for the existing armed overspeed response.
 static inline __attribute__((always_inline)) void LL_FOC_brake(void)
 {
+	if (hardware_fault_status() != 0)
+	{
+		LL_FOC_coast();
+		return;
+	}
 	// compute a valid BRAKE value
 	uint16_t const CCRx = (uint16_t)(0.5f*(float)(__HAL_TIM_GET_AUTORELOAD(&htim1)+1))-1;
 	__HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_1,CCRx);

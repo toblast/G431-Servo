@@ -1,6 +1,7 @@
 #ifndef FOC_OUTPUT_TEST_HAL_H
 #define FOC_OUTPUT_TEST_HAL_H
 #include <stdint.h>
+typedef enum { HAL_OK, HAL_ERROR, HAL_BUSY, HAL_TIMEOUT } HAL_StatusTypeDef;
 typedef struct { uint32_t CR1, CCER, BDTR, ARR, preload[3], active[3]; } TIM_TypeDef;
 typedef struct { TIM_TypeDef *Instance; } TIM_HandleTypeDef;
 #define TIM_CHANNEL_1 0U

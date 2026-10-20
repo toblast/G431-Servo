@@ -60,6 +60,10 @@ int main(void)
     LL_FOC_set_phase_voltage(1, 0, 1, 0, 12);
     CHECK(timer.BDTR & TIM_BDTR_MOE);
 
+    regs[REG_HARDWARE_ERROR_STATUS] = 1U << HW_ERROR_BIT_POSITION_SENSOR_NOT_RESPONDING;
+    LL_FOC_brake();
+    CHECK(!(timer.BDTR & TIM_BDTR_MOE));
+
     const float invalid_bus[] = { 0, -1, NAN, INFINITY };
     for (unsigned i = 0; i < sizeof invalid_bus / sizeof invalid_bus[0]; ++i) {
         regs[REG_HARDWARE_ERROR_STATUS] = 0;
