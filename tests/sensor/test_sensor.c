@@ -206,7 +206,25 @@ static void test_velocity_includes_acquisition_duration(void)
     CHECK(close_to(positionSensor_getVelocityDegree(), expected_dps, 0.5f));
 }
 
-
+static void test_runtime_magnet_failure_preserves_sample(void)
+{
+    const uint8_t invalid_status[] = { 0, 0x28, 0x30, 0x20 };
+    for (unsigned i = 0; i < sizeof invalid_status; ++i) {
+        fixture(1024, 1000);
+        CHECK(positionSensor_init(AS5600_I2C) == 1);
+        const float angle = positionSensor_getRadiansMultiturn();
+        const float velocity = positionSensor_getVelocityDegree();
+        htim6.counter = 1250;
+        set_angle(2048);
+        bus[0x0b] = invalid_status[i];
+        if (i == 3) failed_read_reg = 0x0b;
+        positionSensor_update();
+        CHECK(positionSensor_getRadiansMultiturn() == angle);
+        CHECK(positionSensor_getVelocityDegree() == velocity);
+        CHECK(regs[REG_HARDWARE_ERROR_STATUS] & (1U << HW_ERROR_BIT_POSITION_SENSOR_STATUS_ERROR));
+        CHECK(sensor->lastUpdate == 1000);
+    }
+}
 
 static void observe_published_sample(void)
 {
@@ -255,6 +273,9 @@ int main(int argc, char **argv)
     }
     if (selected(group, "snapshot")) {
         test_publication_restores_interrupt_mask();
+    }
+    if (selected(group, "health")) {
+        test_runtime_magnet_failure_preserves_sample();
     }
     if (failures) fprintf(stderr, "%u sensor regression assertion(s) failed\n", failures);
     else puts("Sensor regression checks passed");

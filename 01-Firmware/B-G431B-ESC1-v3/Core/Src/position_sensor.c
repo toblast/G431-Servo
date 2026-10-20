@@ -142,7 +142,9 @@ void positionSensor_update(void){
 		float cpr = pow(2, 12);
 
 		// raw data from the sensor
-		HAL_StatusTypeDef status = AS5600_GetAngle(sensor->as5600Handle, &angle_data);
+        HAL_StatusTypeDef status = AS5600_CheckMagnet(sensor->as5600Handle);
+        if (status == HAL_OK)
+            status = AS5600_GetAngle(sensor->as5600Handle, &angle_data);
 
 		if(status!=HAL_OK)
 		{	// set encoder error

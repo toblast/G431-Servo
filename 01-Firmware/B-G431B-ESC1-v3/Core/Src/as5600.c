@@ -184,7 +184,6 @@ AS5600_TypeDef *AS5600_New(void) {
 
 HAL_StatusTypeDef AS5600_Init(AS5600_TypeDef *as5600) {
 
-	status_reg_t mag_status;
 	conf_reg_t config;
 	HAL_StatusTypeDef status = HAL_OK;
 
@@ -259,29 +258,18 @@ HAL_StatusTypeDef AS5600_Init(AS5600_TypeDef *as5600) {
         return status;
  	}
 
-    // Check magnet status
-	// *******************
-    if (AS5600_GetMagnetStatus(as5600, &mag_status) != HAL_OK) {
-        status = HAL_ERROR;
-        return status;
-    }
-    if (!mag_status.bit.MagnetDetected) {
-        // Magnet not detected
-        status = HAL_ERROR;
-        return status;
-    }
-    if (mag_status.bit.Agc_min_gain_overflow) {
-        // B-field is too strong
-        status = HAL_ERROR;
-        return status;
-    }
-    if (mag_status.bit.Agc_max_gain_overflow) {
-        // B-field is too weak
-        status = HAL_ERROR;
-        return status;
-    }
+    return AS5600_CheckMagnet(as5600);
+}
 
-    return status;
+HAL_StatusTypeDef AS5600_CheckMagnet(AS5600_TypeDef *const a)
+{
+    status_reg_t status;
+    if (AS5600_GetMagnetStatus(a, &status) != HAL_OK)
+        return HAL_ERROR;
+    if (!status.bit.MagnetDetected || status.bit.Agc_min_gain_overflow ||
+        status.bit.Agc_max_gain_overflow)
+        return HAL_ERROR;
+    return HAL_OK;
 }
 
 HAL_StatusTypeDef AS5600_GetRawAngle(AS5600_TypeDef *const a,

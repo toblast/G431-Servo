@@ -22,6 +22,7 @@ typedef struct {
 
 AS5600_TypeDef *AS5600_New(void);
 HAL_StatusTypeDef AS5600_Init(AS5600_TypeDef *a);
+HAL_StatusTypeDef AS5600_CheckMagnet(AS5600_TypeDef *const a);
 
 HAL_StatusTypeDef AS5600_SetStartPosition(AS5600_TypeDef *const a, const uint16_t pos);
 HAL_StatusTypeDef AS5600_SetStopPosition(AS5600_TypeDef *const a, const uint16_t pos);
