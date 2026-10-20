@@ -102,7 +102,23 @@ static void test_driver_failure_keeps_caller_output(void)
     CHECK(angle == 0x7654);
 }
 
+static void test_initialization_requires_valid_encoder(void)
+{
+    fixture(1000, 100);
+    failed_write = 1;
+    CHECK(positionSensor_init(AS5600_I2C) == 0);
+    CHECK(regs[REG_HARDWARE_ERROR_STATUS] & (1U << HW_ERROR_BIT_POSITION_SENSOR_STATUS_ERROR));
 
+    fixture(1000, 100);
+    bus[0x0b] = 0;
+    CHECK(positionSensor_init(AS5600_I2C) == 0);
+    CHECK(regs[REG_HARDWARE_ERROR_STATUS] & (1U << HW_ERROR_BIT_POSITION_SENSOR_STATUS_ERROR));
+
+    fixture(1000, 100);
+    failed_read_reg = 0x0e;
+    CHECK(positionSensor_init(AS5600_I2C) == 0);
+    CHECK(regs[REG_HARDWARE_ERROR_STATUS] & (1U << HW_ERROR_BIT_POSITION_SENSOR_STATUS_ERROR));
+}
 
 
 
@@ -158,6 +174,9 @@ int main(int argc, char **argv)
     if (selected(group, "read")) {
         test_driver_failure_keeps_caller_output();
         test_failed_runtime_sample_preserves_state();
+    }
+    if (selected(group, "init")) {
+        test_initialization_requires_valid_encoder();
     }
     if (failures) fprintf(stderr, "%u sensor regression assertion(s) failed\n", failures);
     else puts("Sensor regression checks passed");

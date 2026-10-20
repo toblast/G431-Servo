@@ -18,10 +18,12 @@ static unsigned rx_read_calls;
 static unsigned fail_rx_read;
 static unsigned refill_rx;
 static uint32_t mock_tick;
+static bool sensor_ready = true;
 static FDCAN_RxHeaderTypeDef pending_header;
 static uint8_t pending_data[64];
 
 void API_FOC_Torque_Disable(void) { ++disable_count; }
+int positionSensor_isReady(void) { return sensor_ready; }
 uint32_t HAL_GetTick(void) { return mock_tick; }
 uint32_t HAL_FDCAN_GetRxFifoFillLevel(FDCAN_HandleTypeDef *handle, uint32_t fifo)
 {

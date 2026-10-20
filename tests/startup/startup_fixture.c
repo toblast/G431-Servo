@@ -16,6 +16,8 @@ ADC_HandleTypeDef hadc1, hadc2;
 OPAMP_HandleTypeDef hopamp1, hopamp2, hopamp3;
 int huart2, serial;
 uint32_t ADC1_DMA[5], ADC2_DMA[3];
+uint8_t regs[1];
+#define REG_TORQUE_ENABLE 0
 static bool configuration_loaded, ram_reset, sensor_ready, cordic_ready;
 static bool foc_ready, service_ready, serial_ready, can_ready;
 static unsigned adc_callbacks;
@@ -44,7 +46,7 @@ static void factory_reset_eeprom_regs(void) { assert(!can_ready); }
 static void load_eeprom_regs(void) { configuration_loaded = true; }
 static void reset_ram_regs(void) { ram_reset = true; }
 static void HAL_Serial_Init(int *uart, int *handler) { (void)uart; (void)handler; serial_ready = true; }
-static void positionSensor_init(int type) { (void)type; sensor_ready = true; }
+static int positionSensor_init(int type) { (void)type; sensor_ready = true; return 1; }
 static void positionSensor_update(void) { assert(sensor_ready); }
 static void API_FOC_Service_Update(void) { assert(foc_ready); service_ready = true; }
 static void FDCAN_Config(void)

@@ -241,6 +241,10 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
         (RxData[4] == 0xFF) && (RxData[5] == 0xFF) &&
         (RxData[6] == 0xFF) && (RxData[7] == 0xFF))
     {
+      if (!positionSensor_isReady() || regs[REG_HARDWARE_ERROR_STATUS] != 0)
+      {
+        continue;
+      }
       regs[REG_GOAL_POSITION_DEG_L] = 0;
       regs[REG_GOAL_POSITION_DEG_H] = 0;
       regs[REG_GOAL_VELOCITY_DPS_L] = 0;
@@ -333,7 +337,10 @@ int main(void)
   load_eeprom_regs();
   reset_ram_regs();
   HAL_Serial_Init(&huart2,&serial);
-  positionSensor_init(SENSOR_TYPE);
+  if (!positionSensor_init(SENSOR_TYPE))
+  {
+    regs[REG_TORQUE_ENABLE] = 0;
+  }
   positionSensor_update();
   // ADC callbacks read configuration and encoder state, even while IDLE.
   API_FOC_Init();

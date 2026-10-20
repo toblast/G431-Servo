@@ -6,6 +6,7 @@
  */
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "position_sensor.h"
 #include "as5600.h"
 #include "as5048a.h"
@@ -21,6 +22,7 @@ extern TIM_HandleTypeDef htim6;
 typedef struct {
 
 	e_sensor_type sensor_type;
+	int initialized;
 
 	// AS5600 handle
 	AS5600_TypeDef *as5600Handle;
@@ -42,58 +44,54 @@ typedef struct {
 
 } positionSensor_t;
 
-static positionSensor_t* sensor;
+static positionSensor_t sensor_storage;
+static positionSensor_t *const sensor = &sensor_storage;
+static AS5600_TypeDef as5600_storage;
 
-positionSensor_t *positionSensor_New(void) {
-	positionSensor_t *sensor = (positionSensor_t *)calloc(1, sizeof(positionSensor_t));
-    return sensor;
+int positionSensor_isReady(void)
+{
+    return sensor->initialized;
 }
 
 int positionSensor_init(e_sensor_type sensor_type)
 {
+    memset(sensor, 0, sizeof(*sensor));
+    sensor->sensor_type = sensor_type;
 
-	int status=0;
-
-	sensor = positionSensor_New();
-
-	switch(sensor_type)
-	{
-	case AS5600_I2C:
-	{
-		uint16_t angle_data;
-
-		sensor->full_rotation_offset =0;
-
-		sensor->as5600Handle = AS5600_New();
-		sensor->as5600Handle->i2cHandle=&hi2c1;
-		AS5600_Init(sensor->as5600Handle);
-
-		AS5600_GetAngle(sensor->as5600Handle, &angle_data);
-		sensor->last_angle_data = angle_data;
-
-		// velocity calculation init
-		sensor->angle_rad = 0;
-		sensor->lastUpdate = __HAL_TIM_GET_COUNTER(&htim6);
-
-		sensor->sensor_type = sensor_type;
-
-		status = 1;
-	    break;
-	}
-	case AS5048A_PWM:
-		API_AS5048A_Position_Sensor_Init(&htim4);
-		sensor->sensor_type = sensor_type;
-		status = 1;
-	    break;
-	default:
-		status = 0;
-		break;
-	}
-	return status;
+    switch (sensor_type)
+    {
+    case AS5600_I2C:
+    {
+        uint16_t angle_data;
+        memset(&as5600_storage, 0, sizeof(as5600_storage));
+        sensor->as5600Handle = &as5600_storage;
+        sensor->as5600Handle->i2cHandle = &hi2c1;
+        if (AS5600_Init(sensor->as5600Handle) != HAL_OK ||
+            AS5600_GetAngle(sensor->as5600Handle, &angle_data) != HAL_OK)
+        {
+            regs[REG_HARDWARE_ERROR_STATUS] |= 1UL << HW_ERROR_BIT_POSITION_SENSOR_STATUS_ERROR;
+            return 0;
+        }
+        sensor->last_angle_data = angle_data;
+        sensor->angle_rad = 0.0f;
+        sensor->lastUpdate = __HAL_TIM_GET_COUNTER(&htim6);
+        sensor->initialized = 1;
+        return 1;
+    }
+    case AS5048A_PWM:
+        API_AS5048A_Position_Sensor_Init(&htim4);
+        sensor->initialized = 1;
+        return 1;
+    default:
+        regs[REG_HARDWARE_ERROR_STATUS] |= 1UL << HW_ERROR_BIT_POSITION_SENSOR_STATUS_ERROR;
+        return 0;
+    }
 }
 
 float positionSensor_getRadiansEstimation(uint16_t time_us)
 {
+    if (!sensor->initialized) return 0.0f;
+
 	switch(sensor->sensor_type)
 	{
 	case AS5600_I2C:
@@ -139,6 +137,8 @@ float positionSensor_getRadiansEstimation(uint16_t time_us)
 }
 
 void positionSensor_update(void){
+    if (!sensor->initialized) return;
+
 
 
 	switch(sensor->sensor_type)
@@ -202,6 +202,8 @@ void positionSensor_update(void){
 
 float positionSensor_getRadians(void)
 {
+    if (!sensor->initialized) return 0.0f;
+
 	switch(sensor->sensor_type)
 	{
 	case AS5600_I2C:
@@ -217,6 +219,8 @@ float positionSensor_getRadians(void)
 
 float positionSensor_getRadiansMultiturn(void)
 {
+    if (!sensor->initialized) return 0.0f;
+
 	switch(sensor->sensor_type)
 	{
 	case AS5600_I2C:
@@ -231,6 +235,8 @@ float positionSensor_getRadiansMultiturn(void)
 }
 
 float positionSensor_getDegree(void){
+    if (!sensor->initialized) return 0.0f;
+
 	switch(sensor->sensor_type)
 	{
 	case AS5600_I2C:
@@ -245,6 +251,8 @@ float positionSensor_getDegree(void){
 }
 
 float positionSensor_getDegreeMultiturn(void){
+    if (!sensor->initialized) return 0.0f;
+
 	switch(sensor->sensor_type)
 	{
 	case AS5600_I2C:
@@ -259,6 +267,8 @@ float positionSensor_getDegreeMultiturn(void){
 }
 
 float positionSensor_getVelocityDegree(void){
+    if (!sensor->initialized) return 0.0f;
+
 	switch(sensor->sensor_type)
 	{
 	case AS5600_I2C:

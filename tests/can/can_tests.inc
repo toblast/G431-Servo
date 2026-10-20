@@ -33,6 +33,7 @@ static void reset_fixture(bool armed)
     can_armed = armed;
     can_last_time = 17;
     mock_tick = 300;
+    sensor_ready = true;
     tx_count = disable_count = pending_rx = receive_buffer_too_small = 0;
     rx_read_calls = fail_rx_read = refill_rx = 0;
     pending_header = (FDCAN_RxHeaderTypeDef){
@@ -125,6 +126,23 @@ static void test_full_command(void)
     CHECK(can_armed && regs[REG_TORQUE_ENABLE], "full command preserves active state");
 }
 
+static void test_arm_requires_healthy_encoder(void)
+{
+    reset_fixture(false);
+    memset(pending_data, 0xFF, 8);
+    sensor_ready = false;
+    receive();
+    CHECK(!can_armed && !regs[REG_TORQUE_ENABLE], "uninitialized encoder cannot arm");
+    CHECK(can_last_time == 17, "rejected ARM does not start watchdog");
+
+    reset_fixture(false);
+    memset(pending_data, 0xFF, 8);
+    regs[REG_HARDWARE_ERROR_STATUS] = 1U << HW_ERROR_BIT_POSITION_SENSOR_STATUS_ERROR;
+    receive();
+    CHECK(!can_armed && !regs[REG_TORQUE_ENABLE], "sensor fault prevents ARM");
+    CHECK(can_last_time == 17, "faulted ARM does not start watchdog");
+}
+
 static void test_irq_bounds(void)
 {
     reset_fixture(true);
@@ -160,6 +178,7 @@ int main(int argc, char **argv)
         test_frame_validation();
         test_disarmed_and_arm();
         test_full_command();
+        test_arm_requires_healthy_encoder();
         test_irq_bounds();
     }
     printf("CAN callback: %u assertions, %u failures\n", assertions, failures);
