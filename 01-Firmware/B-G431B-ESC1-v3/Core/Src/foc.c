@@ -54,6 +54,15 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 	API_FOC_It(hadc);
 }
 
+void HAL_ADC_ErrorCallback(ADC_HandleTypeDef *hadc)
+{
+	if (hadc == &hadc1 || hadc == &hadc2)
+	{
+		hardware_fault_set(1U << HW_ERROR_BIT_INTERNAL);
+		API_FOC_Torque_Disable();
+	}
+}
+
 // FOC state variable
 #define FOC_STATE_IDLE 0 					// coast
 #define FOC_STATE_TORQUE_CONTROL 1 			// normal operation
@@ -162,7 +171,7 @@ void API_FOC_Set_Torque_Flux_Currents_mA(float Iq_mA, float Id_mA)
 void API_FOC_Init()
 {
 	// Configure the math accelerator before any ADC callback can use it.
-	API_CORDIC_Processor_Init();
+	if (API_CORDIC_Processor_Init() != HAL_OK) Error_Handler();
 
 	// Configure all six channels with MOE kept clear: idle levels are low.
 	LL_FOC_coast();
@@ -174,11 +183,12 @@ void API_FOC_Init()
 	// Starting the base counter leaves MOE clear and keeps ADC TRGO available.
 	if (HAL_TIM_Base_Start(&htim1) != HAL_OK) Error_Handler();
 	// OPAMP and ADC init
-	HAL_OPAMP_Start(&hopamp1);
-	HAL_OPAMP_Start(&hopamp2);
-	HAL_OPAMP_Start(&hopamp3);
-	HAL_ADC_Start_DMA(&hadc1,(uint32_t*)ADC1_DMA,5);
-	HAL_ADC_Start_DMA(&hadc2,(uint32_t*)ADC2_DMA,3);
+	if (HAL_OPAMP_Start(&hopamp1) != HAL_OK ||
+		HAL_OPAMP_Start(&hopamp2) != HAL_OK ||
+		HAL_OPAMP_Start(&hopamp3) != HAL_OK ||
+		HAL_ADC_Start_DMA(&hadc1,(uint32_t*)ADC1_DMA,5) != HAL_OK ||
+		HAL_ADC_Start_DMA(&hadc2,(uint32_t*)ADC2_DMA,3) != HAL_OK)
+		Error_Handler();
 	// disable FOC
 	API_FOC_Torque_Disable();
 }

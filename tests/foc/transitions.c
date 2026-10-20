@@ -6,6 +6,8 @@
 #include "pid.h"
 
 uint8_t regs[REG_MAX];
+typedef int ADC_HandleTypeDef;
+ADC_HandleTypeDef hadc1, hadc2, other_adc;
 uint32_t test_primask;
 void (*test_irq_restored)(void);
 static unsigned delays, brakes, observations;
@@ -42,6 +44,17 @@ static void observe_currents(void)
 
 int main(void)
 {
+    HAL_ADC_ErrorCallback(&other_adc);
+    CHECK(hardware_fault_status() == 0);
+    foc_state = FOC_STATE_TORQUE_CONTROL;
+    HAL_ADC_ErrorCallback(&hadc1);
+    CHECK(foc_state == FOC_STATE_IDLE && hardware_fault_status() == (1U << HW_ERROR_BIT_INTERNAL));
+    hardware_fault_clear(0xff);
+    foc_state = FOC_STATE_FLUX_CONTROL;
+    HAL_ADC_ErrorCallback(&hadc2);
+    CHECK(foc_state == FOC_STATE_IDLE && hardware_fault_status() == (1U << HW_ERROR_BIT_INTERNAL));
+    hardware_fault_clear(0xff);
+    brakes = 0;
     regs[REG_TORQUE_ENABLE] = 1;
     setpoint_torque_current_mA = 1000;
     setpoint_flux_current_mA = 2000;

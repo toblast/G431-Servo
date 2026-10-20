@@ -8,7 +8,7 @@ $buildDirectory = Join-Path $repoRoot 'build/tests/foc'
 New-Item -ItemType Directory -Force -Path $buildDirectory | Out-Null
 $source = Get-Content (Join-Path $firmwareRoot 'Core/Src/foc.c') -Raw
 $functions = ''
-foreach ($name in @('API_FOC_Torque_Enable', 'API_FOC_Torque_Disable', 'API_FOC_Set_Torque_Flux_Currents_mA', 'FOC_Check_Current_Protection')) {
+foreach ($name in @('API_FOC_Torque_Enable', 'API_FOC_Torque_Disable', 'API_FOC_Set_Torque_Flux_Currents_mA', 'FOC_Check_Current_Protection', 'HAL_ADC_ErrorCallback')) {
     $start = $source.IndexOf("void $name(")
     $opening = $source.IndexOf('{', $start)
     $depth = 1

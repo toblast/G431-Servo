@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <setjmp.h>
 
 #define assert(condition) do { if (!(condition)) { \
     fprintf(stderr, "Startup dependency check failed at line %d: %s\n", __LINE__, #condition); \
@@ -23,6 +24,8 @@ uint8_t regs[1];
 static bool configuration_loaded, ram_reset, sensor_ready, cordic_ready;
 static bool foc_ready, service_ready, serial_ready, can_ready;
 static unsigned adc_callbacks;
+static int failure_step, step;
+static jmp_buf fatal_return;
 #define SENSOR_TYPE 0
 #define TIM_CHANNEL_1 1
 #define TIM_CHANNEL_2 2
@@ -37,19 +40,21 @@ static unsigned adc_callbacks;
 #define SET_BIT(reg, bits) ((reg) |= (bits))
 #define __HAL_TIM_SET_COMPARE(timer, channel, value) ((void)0)
 
-static int HAL_TIM_Base_Start(TIM_HandleTypeDef *timer) { assert(timer->Instance->BDTR == 0); return HAL_OK; }
+static int next_status(void) { return ++step == failure_step ? 1 : HAL_OK; }
+static int HAL_TIM_Base_Start(TIM_HandleTypeDef *timer) { assert(timer->Instance->BDTR == 0); return next_status(); }
 static void LL_FOC_coast(void) { htim1.Instance->BDTR = 0; }
-static void Error_Handler(void) { exit(1); }
-static void HAL_OPAMP_Start(OPAMP_HandleTypeDef *opamp) { (void)opamp; }
-static void API_CORDIC_Processor_Init(void) { cordic_ready = true; }
+static void Error_Handler(void) { assert(failure_step != 0); longjmp(fatal_return, 1); }
+static int HAL_OPAMP_Start(OPAMP_HandleTypeDef *opamp) { (void)opamp; return next_status(); }
+static int API_CORDIC_Processor_Init(void) { cordic_ready = true; return next_status(); }
 static void API_FOC_Torque_Disable(void) { foc_ready = true; }
-static void HAL_ADC_Start_DMA(ADC_HandleTypeDef *adc, uint32_t *data, unsigned count)
+static int HAL_ADC_Start_DMA(ADC_HandleTypeDef *adc, uint32_t *data, unsigned count)
 {
     (void)adc; (void)data; (void)count;
     /* A DMA completion may preempt startup as soon as acquisition starts. */
     assert(configuration_loaded && ram_reset && sensor_ready && cordic_ready);
     assert(!can_ready);
     adc_callbacks++;
+    return next_status();
 }
 static bool eeprom_empty(void) { return true; }
 static void factory_reset_eeprom_regs(void) { assert(!can_ready); }
@@ -74,6 +79,16 @@ int main(void)
 {
     /* STARTUP */
     assert(adc_callbacks == 2 && can_ready);
-    puts("Startup callback-order regression passed.");
+    for (failure_step = 1; failure_step <= 7; ++failure_step) {
+        step = 0;
+        can_ready = false;
+        if (setjmp(fatal_return) == 0) {
+            API_FOC_Init();
+            assert(false);
+        }
+        assert(step == failure_step);
+        assert(htim1.Instance->BDTR == 0);
+    }
+    puts("Startup callback order and seven peripheral failure paths passed.");
     return 0;
 }
