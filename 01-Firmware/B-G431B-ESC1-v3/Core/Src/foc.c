@@ -27,7 +27,6 @@
 
 // FOC peripherals
 extern TIM_HandleTypeDef htim1;
-extern TIM_HandleTypeDef htim4;
 extern TIM_HandleTypeDef htim6;
 extern ADC_HandleTypeDef hadc1;
 extern ADC_HandleTypeDef hadc2;

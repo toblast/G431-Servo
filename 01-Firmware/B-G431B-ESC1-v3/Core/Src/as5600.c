@@ -6,7 +6,6 @@
  */
 
 #include <stdio.h>
-#include <stdlib.h>
 #include "as5600.h"
 #include "math_tool.h"
 
@@ -177,10 +176,7 @@ typedef union
 HAL_StatusTypeDef AS5600_SetConfig(AS5600_TypeDef *const as5600, conf_reg_t conf);
 HAL_StatusTypeDef AS5600_GetMagnetStatus(AS5600_TypeDef *const a, status_reg_t *stat);
 
-AS5600_TypeDef *AS5600_New(void) {
-    AS5600_TypeDef *as5600 = (AS5600_TypeDef *)calloc(1, sizeof(AS5600_TypeDef));
-    return as5600;
-}
+
 
 HAL_StatusTypeDef AS5600_Init(AS5600_TypeDef *as5600) {
 

@@ -58,13 +58,6 @@ HAL_StatusTypeDef HAL_I2C_Mem_Write(I2C_HandleTypeDef *handle, uint16_t address,
 }
 
 /* The unselected sensor is linked only to satisfy the production switch. */
-void API_AS5048A_Position_Sensor_Init(TIM_HandleTypeDef *timer) { (void)timer; }
-float API_AS5048A_Position_Sensor_Get_Radians(void) { abort(); }
-float API_AS5048A_Position_Sensor_Get_Radians_Estimation(uint16_t time) { (void)time; abort(); }
-float API_AS5048A_Position_Sensor_Get_Multiturn_Radians(void) { abort(); }
-float API_AS5048A_Position_Sensor_Get_DPS(void) { abort(); }
-uint16_t API_AS5048A_Position_Sensor_Get_DeltaTimestamp(void) { abort(); }
-int16_t API_AS5048A_Position_Sensor_Get_DeltaTimeEstimation(void) { abort(); }
 
 static void set_angle(uint16_t angle)
 {
@@ -110,24 +103,24 @@ static void test_initialization_requires_valid_encoder(void)
 {
     fixture(1000, 100);
     failed_write = 1;
-    CHECK(positionSensor_init(AS5600_I2C) == 0);
+    CHECK(positionSensor_init() == 0);
     CHECK(regs[REG_HARDWARE_ERROR_STATUS] & (1U << HW_ERROR_BIT_POSITION_SENSOR_STATUS_ERROR));
 
     fixture(1000, 100);
     bus[0x0b] = 0;
-    CHECK(positionSensor_init(AS5600_I2C) == 0);
+    CHECK(positionSensor_init() == 0);
     CHECK(regs[REG_HARDWARE_ERROR_STATUS] & (1U << HW_ERROR_BIT_POSITION_SENSOR_STATUS_ERROR));
 
     fixture(1000, 100);
     failed_read_reg = 0x0e;
-    CHECK(positionSensor_init(AS5600_I2C) == 0);
+    CHECK(positionSensor_init() == 0);
     CHECK(regs[REG_HARDWARE_ERROR_STATUS] & (1U << HW_ERROR_BIT_POSITION_SENSOR_STATUS_ERROR));
 }
 
 static void test_initial_sample_has_zero_velocity(void)
 {
     fixture(3072, 1000);
-    CHECK(positionSensor_init(AS5600_I2C) == 1);
+    CHECK(positionSensor_init() == 1);
     CHECK(close_to(positionSensor_getDegreeMultiturn(), 270.0f, 0.01f));
     CHECK(close_to(positionSensor_getVelocityDegree(), 0.0f, 0.01f));
     htim6.counter = 1250;
@@ -139,7 +132,7 @@ static void test_initial_sample_has_zero_velocity(void)
 static void test_failed_runtime_sample_preserves_state(void)
 {
     fixture(4090, 1000);
-    CHECK(positionSensor_init(AS5600_I2C) == 1);
+    CHECK(positionSensor_init() == 1);
     htim6.counter = 1250;
     set_angle(4094);
     positionSensor_update();
@@ -170,7 +163,7 @@ static void test_failed_runtime_sample_preserves_state(void)
 static void test_equal_timestamps_do_not_make_stale_or_infinite_velocity(void)
 {
     fixture(1024, 5000);
-    CHECK(positionSensor_init(AS5600_I2C) == 1);
+    CHECK(positionSensor_init() == 1);
     CHECK(isfinite(positionSensor_getRadiansEstimation(5000)));
     CHECK(!(regs[REG_HARDWARE_ERROR_STATUS] & (1U << HW_ERROR_BIT_POSITION_SENSOR_NOT_RESPONDING)));
     set_angle(1025);
@@ -182,7 +175,7 @@ static void test_equal_timestamps_do_not_make_stale_or_infinite_velocity(void)
 static void test_wraparound_uses_modular_elapsed_time(void)
 {
     fixture(1024, 65535);
-    CHECK(positionSensor_init(AS5600_I2C) == 1);
+    CHECK(positionSensor_init() == 1);
     htim6.counter = 0;
     set_angle(1025);
     positionSensor_update();
@@ -195,7 +188,7 @@ static void test_velocity_includes_acquisition_duration(void)
 {
     fixture(1000, 1000);
     acquisition_us = 40;
-    CHECK(positionSensor_init(AS5600_I2C) == 1);
+    CHECK(positionSensor_init() == 1);
     /* Initialization reads status then angle; obtain the actual completion time. */
     const uint16_t previous_completion = htim6.counter;
     htim6.counter = (uint16_t)(previous_completion + 260);
@@ -211,7 +204,7 @@ static void test_runtime_magnet_failure_preserves_sample(void)
     const uint8_t invalid_status[] = { 0, 0x28, 0x30, 0x20 };
     for (unsigned i = 0; i < sizeof invalid_status; ++i) {
         fixture(1024, 1000);
-        CHECK(positionSensor_init(AS5600_I2C) == 1);
+        CHECK(positionSensor_init() == 1);
         const float angle = positionSensor_getRadiansMultiturn();
         const float velocity = positionSensor_getVelocityDegree();
         htim6.counter = 1250;
@@ -239,7 +232,7 @@ static void observe_published_sample(void)
 static void test_publication_restores_interrupt_mask(void)
 {
     fixture(1024, 1000);
-    CHECK(positionSensor_init(AS5600_I2C) == 1);
+    CHECK(positionSensor_init() == 1);
     htim6.counter = 1250;
     set_angle(1025);
     test_irq_restored = observe_published_sample;
@@ -258,7 +251,7 @@ static int selected(const char *group, const char *name)
 static void test_stale_fault_requires_disarm(void)
 {
     fixture(1024, 1000);
-    CHECK(positionSensor_init(AS5600_I2C) == 1);
+    CHECK(positionSensor_init() == 1);
     regs[REG_TORQUE_ENABLE] = 1;
     positionSensor_getRadiansEstimation(2201);
     CHECK(hardware_fault_status() & (1U << HW_ERROR_BIT_POSITION_SENSOR_NOT_RESPONDING));

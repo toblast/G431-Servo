@@ -26,7 +26,6 @@ static bool foc_ready, service_ready, serial_ready, can_ready;
 static unsigned adc_callbacks;
 static int failure_step, step;
 static jmp_buf fatal_return;
-#define SENSOR_TYPE 0
 #define TIM_CHANNEL_1 1
 #define TIM_CHANNEL_2 2
 #define TIM_CHANNEL_3 3
@@ -64,7 +63,7 @@ static bool control_configuration_valid(void) { return true; }
 #define HW_ERROR_BIT_CONFIGURATION 7
 static void hardware_fault_set(uint8_t bits) { (void)bits; }
 static void HAL_Serial_Init(int *uart, int *handler) { (void)uart; (void)handler; serial_ready = true; }
-static int positionSensor_init(int type) { (void)type; sensor_ready = true; return 1; }
+static int positionSensor_init(void) { sensor_ready = true; return 1; }
 static void positionSensor_update(void) { assert(sensor_ready); }
 static void API_FOC_Service_Update(void) { assert(foc_ready); service_ready = true; }
 static void FDCAN_Config(void)

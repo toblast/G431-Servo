@@ -36,7 +36,6 @@ BUILD_DIR = build
 ######################################
 # C sources
 C_SOURCES =  \
-Core/Src/as5048a.c \
 Core/Src/as5600.c \
 Core/Src/control_table.c \
 Core/Src/cordic.c \
