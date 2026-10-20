@@ -55,6 +55,9 @@ static bool eeprom_empty(void) { return true; }
 static void factory_reset_eeprom_regs(void) { assert(!can_ready); }
 static void load_eeprom_regs(void) { configuration_loaded = true; }
 static void reset_ram_regs(void) { ram_reset = true; }
+static bool control_configuration_valid(void) { return true; }
+#define HW_ERROR_BIT_CONFIGURATION 7
+static void hardware_fault_set(uint8_t bits) { (void)bits; }
 static void HAL_Serial_Init(int *uart, int *handler) { (void)uart; (void)handler; serial_ready = true; }
 static int positionSensor_init(int type) { (void)type; sensor_ready = true; return 1; }
 static void positionSensor_update(void) { assert(sensor_ready); }

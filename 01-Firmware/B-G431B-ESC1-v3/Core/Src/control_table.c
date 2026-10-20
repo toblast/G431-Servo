@@ -14,6 +14,29 @@
 
 uint8_t regs[REG_MAX];
 
+bool control_configuration_valid(void)
+{
+    int16_t const minimum = (int16_t)MAKE_SHORT(regs[REG_MIN_POSITION_DEG_L], regs[REG_MIN_POSITION_DEG_H]);
+    int16_t const maximum = (int16_t)MAKE_SHORT(regs[REG_MAX_POSITION_DEG_L], regs[REG_MAX_POSITION_DEG_H]);
+    int16_t const velocity = (int16_t)MAKE_SHORT(regs[REG_MAX_VELOCITY_DPS_L], regs[REG_MAX_VELOCITY_DPS_H]);
+    uint16_t const current = MAKE_SHORT(regs[REG_MAX_CURRENT_MA_L], regs[REG_MAX_CURRENT_MA_H]);
+    int16_t const flux_kp = (int16_t)MAKE_SHORT(regs[REG_PID_FLUX_CURRENT_KP_L], regs[REG_PID_FLUX_CURRENT_KP_H]);
+    int16_t const flux_ki = (int16_t)MAKE_SHORT(regs[REG_PID_FLUX_CURRENT_KI_L], regs[REG_PID_FLUX_CURRENT_KI_H]);
+    int16_t const torque_kp = (int16_t)MAKE_SHORT(regs[REG_PID_TORQUE_CURRENT_KP_L], regs[REG_PID_TORQUE_CURRENT_KP_H]);
+    int16_t const torque_ki = (int16_t)MAKE_SHORT(regs[REG_PID_TORQUE_CURRENT_KI_L], regs[REG_PID_TORQUE_CURRENT_KI_H]);
+    return minimum < maximum && minimum >= -3276 && maximum <= 3276 &&
+           velocity > 0 && (uint16_t)velocity <= SERVO_BENCH_MAX_VELOCITY_DPS &&
+           current > 0 && current <= SERVO_BENCH_MAX_CURRENT_MA &&
+           regs[REG_ENCODER_BITS] == 12 && regs[REG_MOTOR_POLE_PAIRS] != 0 &&
+           regs[REG_INV_PHASE_MOTOR] <= 1 &&
+           regs[REG_LOW_VOLTAGE_LIMIT] > 0 &&
+           regs[REG_LOW_VOLTAGE_LIMIT] < regs[REG_HIGH_VOLTAGE_LIMIT] &&
+           regs[REG_HIGH_VOLTAGE_LIMIT] <= REG_HIGH_VOLTAGE_LIMIT_VALUE &&
+           regs[REG_TEMPERATURE_LIMIT] > 0 && regs[REG_TEMPERATURE_LIMIT] <= REG_TEMPERATURE_LIMIT_VALUE &&
+           flux_kp >= 0 && flux_ki >= 0 && (flux_kp > 0 || flux_ki > 0) &&
+           torque_kp >= 0 && torque_ki >= 0 && (torque_kp > 0 || torque_ki > 0);
+}
+
 void factory_reset_eeprom_regs()
 {
 	regs[REG_MODEL_NUMBER_L] = LOW_BYTE(REG_MODEL_NUMBER_VALUE);

@@ -9,6 +9,7 @@ uint32_t test_primask;
 void (*test_irq_restored)(void);
 static unsigned delays, brakes, observations;
 static unsigned failures;
+bool control_configuration_valid(void) { return true; }
 #define CHECK(condition) do { if (!(condition)) { \
     fprintf(stderr, "FOC transition failed at line %d: %s\n", __LINE__, #condition); ++failures; \
 } } while (0)

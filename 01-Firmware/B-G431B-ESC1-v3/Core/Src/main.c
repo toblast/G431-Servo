@@ -327,6 +327,11 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
         (RxData[4] == 0xFF) && (RxData[5] == 0xFF) &&
         (RxData[6] == 0xFF) && (RxData[7] == 0xFF))
     {
+      if (!control_configuration_valid())
+      {
+        hardware_fault_set(1U << HW_ERROR_BIT_CONFIGURATION);
+        continue;
+      }
       if (!positionSensor_isReady() || hardware_fault_status() != 0)
       {
         continue;
@@ -422,6 +427,7 @@ int main(void)
 	factory_reset_eeprom_regs();
   load_eeprom_regs();
   reset_ram_regs();
+  if (!control_configuration_valid()) hardware_fault_set(1U << HW_ERROR_BIT_CONFIGURATION);
   HAL_Serial_Init(&huart2,&serial);
   if (!positionSensor_init(SENSOR_TYPE))
   {
@@ -602,6 +608,12 @@ int main(void)
 			service_last_time_us+=SERVICE_LOOP_PERIOD;
 
 			// FOC service update
+			if (!control_configuration_valid())
+			{
+				hardware_fault_set(1U << HW_ERROR_BIT_CONFIGURATION);
+				Servo_Disarm();
+			}
+			else hardware_fault_clear(1U << HW_ERROR_BIT_CONFIGURATION);
 			API_FOC_Service_Update();
 
 			// Handle local MMI

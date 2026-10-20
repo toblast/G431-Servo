@@ -120,7 +120,7 @@ void API_FOC_Torque_Enable()
 	pid_reset(&flux_pi);
 	pid_reset(&torque_pi);
 	// Publish the active state only after every target and PI state is reset.
-	if (regs[REG_TORQUE_ENABLE] && hardware_fault_status() == 0)
+	if (regs[REG_TORQUE_ENABLE] && hardware_fault_status() == 0 && control_configuration_valid())
 		foc_state = FOC_STATE_TORQUE_CONTROL;
 	__set_PRIMASK(primask);
 }
@@ -318,7 +318,7 @@ int API_FOC_Calibrate()
     uint32_t const primask = __get_PRIMASK();
     __disable_irq();
     if (calibration_active || regs[REG_TORQUE_ENABLE] ||
-        hardware_fault_status() != 0 || !positionSensor_isReady())
+        hardware_fault_status() != 0 || !positionSensor_isReady() || !control_configuration_valid())
     {
         __set_PRIMASK(primask);
         return 3;

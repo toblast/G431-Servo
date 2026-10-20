@@ -9,6 +9,7 @@
 #define INC_CONTROL_TABLE_H_
 
 #include "stm32g4xx_hal.h"
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -167,9 +168,11 @@ extern "C" {
 
 #define REG_MIN_POSITION_DEG_VALUE 			-800   	// deg
 #define REG_MAX_POSITION_DEG_VALUE 			800		// deg
-#define REG_MAX_VELOCITY_DPS_VALUE			16000	// dps
+#define SERVO_BENCH_MAX_CURRENT_MA             1000U
+#define SERVO_BENCH_MAX_VELOCITY_DPS            360U
+#define REG_MAX_VELOCITY_DPS_VALUE             360     // rotor dps, initial bench envelope
 #define REG_MAX_ACCELERATION_DPSS_VALUE		0		// dpss
-#define REG_MAX_CURRENT_MA_VALUE			26000	// mA
+#define REG_MAX_CURRENT_MA_VALUE               500     // mA, initial bench limit
 
 #define REG_TEMPERATURE_LIMIT_VALUE		 	70		// °C
 #define REG_LOW_VOLTAGE_LIMIT_VALUE		 	10		// V
@@ -180,7 +183,7 @@ extern "C" {
 #define REG_ALARM_LED_VALUE					0		// TODO : fill comment
 #define REG_ALARM_SHUTDOWN_VALUE			0		// TODO : fill comment
 
-#define REG_ENCODER_BITS_VALUE				14		//
+#define REG_ENCODER_BITS_VALUE                12      // fixed AS5600 resolution
 #define REG_MOTOR_POLE_PAIRS_VALUE			14		//
 #define REG_MOTOR_SYNCHRO_VALUE				0		// deg
 #define REG_INV_PHASE_VALUE					0		// 0: NORMAL 1: INV
@@ -226,12 +229,14 @@ extern "C" {
 #define HW_ERROR_BIT_FOC_TIMEOUT 4
 #define HW_ERROR_BIT_OVERLOAD 5
 #define HW_ERROR_BIT_OVERHEATING 6
+#define HW_ERROR_BIT_CONFIGURATION 7
 
 // REGISTER OPERATIONS ////////////////////////////////////////////////////////
 void factory_reset_eeprom_regs();
 void load_eeprom_regs();
 void store_eeprom_regs();
 void reset_ram_regs();
+bool control_configuration_valid(void);
 
 extern uint8_t regs[REG_MAX];
 

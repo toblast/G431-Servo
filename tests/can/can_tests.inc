@@ -38,6 +38,7 @@ static void reset_fixture(bool armed)
     test_primask = 0;
     sensor_ready = true;
     mock_calibrating = false;
+    mock_configuration_valid = true;
     tx_count = disable_count = pending_rx = receive_buffer_too_small = 0;
     rx_read_calls = fail_rx_read = refill_rx = 0;
     enable_count = current_updates = 0;
@@ -155,6 +156,13 @@ static void test_arm_requires_healthy_encoder(void)
     memset(pending_data, 0, 8);
     receive();
     CHECK(disable_count == 1, "DISARM remains accepted during calibration");
+
+    reset_fixture(false);
+    memset(pending_data, 0xFF, 8);
+    mock_configuration_valid = false;
+    receive();
+    CHECK(!can_armed && !regs[REG_TORQUE_ENABLE], "invalid configuration prevents ARM");
+    CHECK(hardware_fault_status() & (1U << HW_ERROR_BIT_CONFIGURATION), "configuration fault is recorded");
 }
 
 static void test_irq_bounds(void)

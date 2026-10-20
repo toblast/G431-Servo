@@ -22,6 +22,7 @@ static bool ready, stuck;
 /* GLOBALS */
 static void LL_FOC_coast(void) { }
 int positionSensor_isReady(void) { return ready; }
+bool control_configuration_valid(void) { return true; }
 float positionSensor_getRadians(void) { return rotor_angle; }
 uint32_t HAL_GetTick(void)
 {
