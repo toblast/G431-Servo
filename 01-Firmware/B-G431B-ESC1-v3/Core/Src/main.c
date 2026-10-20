@@ -623,7 +623,7 @@ int main(void)
 				Servo_Disarm();
 				// start FOC calibration
 				int const result = API_FOC_Calibrate();
-				HAL_Serial_Print(&serial, "Calibration result: %d (0=success, 1=no motion, 2=pole pairs, 3=cancel/fault)\n", result);
+				HAL_Serial_Print(&serial, "Calibration result: %d (0=success, 1=no motion, 2=pole pairs, 3=cancel/fault, 4=storage)\n", result);
 			}
 
 			// Handle serial communication
