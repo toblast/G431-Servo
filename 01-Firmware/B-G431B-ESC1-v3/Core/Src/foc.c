@@ -57,13 +57,13 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 #define FOC_STATE_IDLE 0 					// brake
 #define FOC_STATE_TORQUE_CONTROL 1 			// normal operation
 #define FOC_STATE_FLUX_CONTROL 10 			// calibration
-static uint32_t foc_state = FOC_STATE_IDLE;
-static uint16_t foc_timestamp_us = 0;
-static uint32_t foc_timestamp_ms = 0;
+static volatile uint32_t foc_state = FOC_STATE_IDLE;
+static volatile uint16_t foc_timestamp_us = 0;
+static volatile uint32_t foc_timestamp_ms = 0;
 
 // FOC setpoints variables
-static float setpoint_torque_current_mA = 0.0f;
-static float setpoint_flux_current_mA = 0.0f;
+static volatile float setpoint_torque_current_mA = 0.0f;
+static volatile float setpoint_flux_current_mA = 0.0f;
 static float setpoint_electrical_angle_rad = 0.0f;
 static float setpoint_flux_voltage_V = 0.0f;
 
@@ -100,7 +100,9 @@ static uint32_t foc_counter = 0;
 
 void API_FOC_Torque_Enable()
 {
-	foc_state = FOC_STATE_TORQUE_CONTROL;
+	uint32_t const primask = __get_PRIMASK();
+	__disable_irq();
+	foc_state = FOC_STATE_IDLE;
 
 	setpoint_torque_current_mA = 0.0f;
 	setpoint_flux_current_mA = 0.0f;
@@ -112,21 +114,36 @@ void API_FOC_Torque_Enable()
 
 	pid_reset(&flux_pi);
 	pid_reset(&torque_pi);
+	// Publish the active state only after every target and PI state is reset.
+	if (regs[REG_TORQUE_ENABLE] && regs[REG_HARDWARE_ERROR_STATUS] == 0)
+		foc_state = FOC_STATE_TORQUE_CONTROL;
+	__set_PRIMASK(primask);
 }
 
 void API_FOC_Torque_Disable()
 {
+	uint32_t const primask = __get_PRIMASK();
+	__disable_irq();
 	foc_state = FOC_STATE_IDLE;
-	HAL_Delay(1);
+	setpoint_torque_current_mA = 0.0f;
+	setpoint_flux_current_mA = 0.0f;
 
 	// enforce brake
 	LL_FOC_brake();
+	__set_PRIMASK(primask);
 }
 
 void API_FOC_Set_Torque_Flux_Currents_mA(float Iq_mA, float Id_mA)
 {
-	setpoint_torque_current_mA = Iq_mA;
-	setpoint_flux_current_mA = Id_mA;
+	uint32_t const primask = __get_PRIMASK();
+	__disable_irq();
+	if (foc_state == FOC_STATE_TORQUE_CONTROL &&
+		regs[REG_TORQUE_ENABLE] && regs[REG_HARDWARE_ERROR_STATUS] == 0)
+	{
+		setpoint_torque_current_mA = Iq_mA;
+		setpoint_flux_current_mA = Id_mA;
+	}
+	__set_PRIMASK(primask);
 }
 
 // user API function
