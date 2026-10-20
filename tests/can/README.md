@@ -6,9 +6,8 @@ Run from the repository root with a native GCC or Clang compiler:
 ./tests/can/run.ps1 -Compiler 'C:/path/to/clang.exe'
 ```
 
-`-Suite strict` selects frame validation, ARM and ordinary command checks.
-`-Suite disarm` selects explicit DISARM checks. The default `-Suite all` runs
-both. This allows separate patches to be validated in their implementation order.
+`-Suite strict` and the default `-Suite all` both run the complete current suite,
+including explicit DISARM, watchdogs and command publication races.
 
 If `clang` or `gcc` is on `PATH`, the compiler argument is optional. `CC` also
 selects a compiler executable.

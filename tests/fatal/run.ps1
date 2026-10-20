@@ -22,7 +22,10 @@ foreach ($name in @('Error_Handler', 'NMI_Handler', 'HardFault_Handler', 'MemMan
 $fixture = Get-Content (Join-Path $PSScriptRoot 'fatal.c') -Raw
 $sourcePath = Join-Path $buildDirectory 'fatal.c'
 $exePath = Join-Path $buildDirectory 'fatal.exe'
-[IO.File]::WriteAllText($sourcePath, $fixture.Replace('/* HANDLERS */', $functions))
+$generated = $fixture.Replace('/* HANDLERS */', $functions)
+if (!(Test-Path -LiteralPath $sourcePath) -or [IO.File]::ReadAllText($sourcePath) -ne $generated) {
+    [IO.File]::WriteAllText($sourcePath, $generated)
+}
 & $compilerCommand.Source -std=gnu99 -Wall -Wextra -I (Join-Path $PSScriptRoot 'mocks') -I (Join-Path $firmwareRoot 'Core/Inc') $sourcePath -o $exePath
 if ($LASTEXITCODE -ne 0) { throw 'Fatal handler compilation failed.' }
 & $exePath
