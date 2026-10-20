@@ -234,9 +234,10 @@ extern "C" {
 #define HW_ERROR_BIT_CONFIGURATION 7
 
 // REGISTER OPERATIONS ////////////////////////////////////////////////////////
-void factory_reset_eeprom_regs();
+extern volatile bool configuration_update_active;
+HAL_StatusTypeDef factory_reset_eeprom_regs();
 void load_eeprom_regs();
-void store_eeprom_regs();
+HAL_StatusTypeDef store_eeprom_regs();
 void reset_ram_regs();
 bool control_configuration_valid(void);
 

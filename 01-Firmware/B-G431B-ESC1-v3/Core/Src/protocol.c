@@ -131,9 +131,16 @@ static bool protocol_write_registers(uint16_t address, uint16_t length, uint8_t 
     uint32_t const primask = __get_PRIMASK();
     __disable_irq();
     bool const allowed = led || (configuration && Servo_Is_Disarmed());
-    if (allowed) memcpy(&regs[address], data, length);
+    if (allowed) {
+        if (configuration) configuration_update_active = true;
+        memcpy(&regs[address], data, length);
+    }
     __set_PRIMASK(primask);
-    if (allowed && configuration) store_eeprom_regs();
+    if (allowed && configuration) {
+        HAL_StatusTypeDef const result = store_eeprom_regs();
+        configuration_update_active = false;
+        return result == HAL_OK;
+    }
     return allowed;
 }
 
@@ -209,14 +216,17 @@ void instruction_handler()
 		break;
 	case INSTR_FACTORY_RESET:
 		{
+			configuration_update_active = true;
 			Servo_Disarm();
-			factory_reset_eeprom_regs();
+			HAL_StatusTypeDef const result = factory_reset_eeprom_regs();
+			if (result != HAL_OK) configuration_update_active = false;
 			// reply with a status packet with Model Number LSB MSB and Firmware version
 			tx_packet_buffer[PKT_INSTRUCTION]= INSTR_STATUS;
-			tx_packet_buffer[PKT_ERROR]= ERROR_NONE;
+			tx_packet_buffer[PKT_ERROR]= result == HAL_OK ? ERROR_NONE : ERROR_RESULT_FAIL;
 			packet_encapsulate(2);
 			// send packet
 			HAL_Serial_Write(&serial, (uint8_t const *)tx_packet_buffer,tx_packet_length);
+			if (result != HAL_OK) break;
 			// reboot
 			HAL_Delay(100);
 			HAL_NVIC_SystemReset();
@@ -224,6 +234,7 @@ void instruction_handler()
 		break;
 	case INSTR_REBOOT:
 		{
+			configuration_update_active = true;
 			Servo_Disarm();
 			// reply with a status packet with Model Number LSB MSB and Firmware version
 			tx_packet_buffer[PKT_INSTRUCTION]= INSTR_STATUS;

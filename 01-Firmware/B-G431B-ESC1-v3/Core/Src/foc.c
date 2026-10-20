@@ -322,7 +322,7 @@ static bool FOC_Calibration_Enter_Flux(float angle_rad, float voltage_V)
 }
 
 // Bench calibration only. Return 0 on success, 1 for no motion, 2 for pole-pair
-// mismatch, or 3 for invalid state, cancellation or a hardware/sensor fault.
+// mismatch, 3 for invalid state/cancellation/fault, or 4 for persistence failure.
 int API_FOC_Calibrate()
 {
     uint32_t const primask = __get_PRIMASK();
@@ -398,7 +398,11 @@ int API_FOC_Calibrate()
     FOC_Calibration_Idle();
     // Keep calibration_active true through persistence so CAN ARM stays rejected.
     if (hardware_fault_status() != 0 || calibration_cancelled) goto done;
-    store_eeprom_regs();
+    if (store_eeprom_regs() != HAL_OK)
+    {
+        result = 4;
+        goto done;
+    }
     result = 0;
 
 done:

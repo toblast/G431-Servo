@@ -4,21 +4,23 @@
 #include "../../01-Firmware/B-G431B-ESC1-v3/Core/Src/protocol.c"
 
 uint8_t regs[REG_MAX];
+volatile bool configuration_update_active;
 HAL_Serial_Handler serial;
 uint32_t test_primask;
 void (*before_irq_disable)(void);
 static bool armed, calibrating;
 static unsigned failures, stores, disarms, resets;
+static HAL_StatusTypeDef store_status = HAL_OK;
 #define CHECK(condition) do { if (!(condition)) { \
     fprintf(stderr, "Serial check failed at line %d: %s\n", __LINE__, #condition); ++failures; \
 } } while (0)
 bool Servo_Is_Disarmed(void) { CHECK(test_primask == 1); return !armed && !calibrating && !regs[REG_TORQUE_ENABLE]; }
 void Servo_Disarm(void) { armed = false; regs[REG_TORQUE_ENABLE] = 0; ++disarms; }
 bool API_FOC_Is_Calibrating(void) { return calibrating; }
-void store_eeprom_regs(void) { CHECK(!armed && !calibrating && test_primask == 0); ++stores; }
-void factory_reset_eeprom_regs(void) { CHECK(!armed && !regs[REG_TORQUE_ENABLE]); ++stores; }
+HAL_StatusTypeDef store_eeprom_regs(void) { CHECK(!armed && !calibrating && test_primask == 0 && configuration_update_active); ++stores; return store_status; }
+HAL_StatusTypeDef factory_reset_eeprom_regs(void) { CHECK(!armed && !regs[REG_TORQUE_ENABLE] && configuration_update_active); ++stores; return store_status; }
 void HAL_Delay(uint32_t time) { (void)time; CHECK(!armed && !regs[REG_TORQUE_ENABLE]); }
-void HAL_NVIC_SystemReset(void) { ++resets; }
+void HAL_NVIC_SystemReset(void) { CHECK(configuration_update_active); configuration_update_active = false; ++resets; }
 int HAL_Serial_Write(HAL_Serial_Handler *handler, uint8_t const *data, int length) {
     (void)handler; (void)data; return length;
 }
@@ -103,6 +105,12 @@ int main(void)
     rx_packet_buffer[PKT_INSTRUCTION] = INSTR_FACTORY_RESET;
     instruction_handler();
     CHECK(disarms == 2 && resets == 2 && stores == 1);
+    store_status = HAL_ERROR;
+    write_byte(REG_MAX_CURRENT_MA_L, 1);
+    CHECK(tx_packet_buffer[PKT_ERROR] != ERROR_NONE && !configuration_update_active);
+    rx_packet_buffer[PKT_INSTRUCTION] = INSTR_FACTORY_RESET;
+    instruction_handler();
+    CHECK(tx_packet_buffer[PKT_ERROR] == ERROR_RESULT_FAIL && resets == 2 && !configuration_update_active);
     puts(failures ? "Serial protocol regressions failed." : "Serial protocol regressions passed.");
     return failures ? EXIT_FAILURE : EXIT_SUCCESS;
 }

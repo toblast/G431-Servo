@@ -13,9 +13,11 @@
 #include <string.h>
 
 uint8_t regs[REG_MAX];
+volatile bool configuration_update_active = false;
 
 bool control_configuration_valid(void)
 {
+    if (configuration_update_active) return false;
     int16_t const minimum = (int16_t)MAKE_SHORT(regs[REG_MIN_POSITION_DEG_L], regs[REG_MIN_POSITION_DEG_H]);
     int16_t const maximum = (int16_t)MAKE_SHORT(regs[REG_MAX_POSITION_DEG_L], regs[REG_MAX_POSITION_DEG_H]);
     int16_t const velocity = (int16_t)MAKE_SHORT(regs[REG_MAX_VELOCITY_DPS_L], regs[REG_MAX_VELOCITY_DPS_H]);
@@ -37,7 +39,7 @@ bool control_configuration_valid(void)
            torque_kp >= 0 && torque_ki >= 0 && (torque_kp > 0 || torque_ki > 0);
 }
 
-void factory_reset_eeprom_regs()
+HAL_StatusTypeDef factory_reset_eeprom_regs()
 {
 	regs[REG_MODEL_NUMBER_L] = LOW_BYTE(REG_MODEL_NUMBER_VALUE);
 	regs[REG_MODEL_NUMBER_H] = HIGH_BYTE(REG_MODEL_NUMBER_VALUE);
@@ -125,7 +127,7 @@ void factory_reset_eeprom_regs()
 
 	regs[REG_EWMA_ENCODER] = REG_EWMA_ENCODER_VALUE;
 
-	eeprom_store(regs, REG_TORQUE_ENABLE); // REG_TORQUE_ENABLE must be 64 bits aligned
+	return store_eeprom_regs();
 }
 
 
@@ -134,9 +136,11 @@ void load_eeprom_regs()
 	eeprom_restore(regs, REG_TORQUE_ENABLE); // REG_TORQUE_ENABLE must be 64 bits aligned
 }
 
-void store_eeprom_regs()
+HAL_StatusTypeDef store_eeprom_regs()
 {
-	eeprom_store(regs, REG_TORQUE_ENABLE); // REG_TORQUE_ENABLE must be 64 bits aligned
+	HAL_StatusTypeDef const result = eeprom_store(regs, REG_TORQUE_ENABLE);
+	if (result != HAL_OK) hardware_fault_set(1U << HW_ERROR_BIT_INTERNAL);
+	return result;
 }
 
 void reset_ram_regs()

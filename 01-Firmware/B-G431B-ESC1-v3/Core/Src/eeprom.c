@@ -29,7 +29,8 @@ HAL_StatusTypeDef eeprom_restore(uint8_t * regs, uint32_t size)
 
 HAL_StatusTypeDef eeprom_store(uint8_t const * regs, uint32_t size)
 {
-	HAL_FLASH_Unlock();
+	HAL_StatusTypeDef const unlock_result = HAL_FLASH_Unlock();
+	if (unlock_result != HAL_OK) return unlock_result;
 	// erase the last page of bank1 (STM32G43x : 1 bank, 64 pages, 2kB per page, 64-bit data)
 	{
 		FLASH_EraseInitTypeDef erase =
@@ -60,12 +61,6 @@ HAL_StatusTypeDef eeprom_store(uint8_t const * regs, uint32_t size)
 				);
 			if(result!=HAL_OK)
 			{
-				uint32_t error = HAL_FLASH_GetError();
-				if(error)
-				{
-					HAL_FLASH_Lock();
-					return error;
-				}
 				HAL_FLASH_Lock();
 				return result;
 			}

@@ -57,7 +57,7 @@ static int HAL_ADC_Start_DMA(ADC_HandleTypeDef *adc, uint32_t *data, unsigned co
     return next_status();
 }
 static bool eeprom_empty(void) { return true; }
-static void factory_reset_eeprom_regs(void) { assert(!can_ready); }
+static int factory_reset_eeprom_regs(void) { assert(!can_ready); return HAL_OK; }
 static void load_eeprom_regs(void) { configuration_loaded = true; }
 static void reset_ram_regs(void) { ram_reset = true; }
 static bool control_configuration_valid(void) { return true; }

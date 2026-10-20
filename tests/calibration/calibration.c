@@ -15,6 +15,7 @@ static uint64_t max_sample_gap, max_service_gap;
 static unsigned failures, samples, services, stores, fault_after, cancellation_seen;
 static float rotor_angle, rotor_direction;
 static bool ready, stuck;
+static HAL_StatusTypeDef store_status = HAL_OK;
 #define CHECK(condition) do { if (!(condition)) { \
     fprintf(stderr, "Calibration check failed at line %d: %s\n", __LINE__, #condition); ++failures; \
 } } while (0)
@@ -55,12 +56,14 @@ void API_FOC_Service_Update(void)
     last_service = clock_us;
     ++services;
 }
-void store_eeprom_regs(void)
+HAL_StatusTypeDef store_eeprom_regs(void)
 {
     CHECK(API_FOC_Is_Calibrating());
     CHECK(foc_state == FOC_STATE_IDLE && setpoint_flux_voltage_V == 0);
     CHECK(!calibration_cancelled && hardware_fault_status() == 0);
     ++stores;
+    if (store_status != HAL_OK) hardware_fault_set(1U << HW_ERROR_BIT_INTERNAL);
+    return store_status;
 }
 /* FUNCTIONS */
 
@@ -106,6 +109,11 @@ int main(void)
     reset_fixture(); stuck = true; check_failed(1);
     reset_fixture(); regs[REG_MOTOR_POLE_PAIRS] = 14; check_failed(2);
     reset_fixture(); ready = false; check_failed(3);
+    reset_fixture(); store_status = HAL_ERROR;
+    CHECK(API_FOC_Calibrate() == 4 && stores == 1);
+    CHECK(!API_FOC_Is_Calibrating() && foc_state == FOC_STATE_IDLE);
+    CHECK(regs[REG_INV_PHASE_MOTOR] == 1 && regs[REG_MOTOR_SYNCHRO_L] == 0x23 && regs[REG_MOTOR_SYNCHRO_H] == 1);
+    CHECK(hardware_fault_status() == (1U << HW_ERROR_BIT_INTERNAL));
     puts(failures ? "Calibration regressions failed." : "Calibration regressions passed.");
     return failures ? EXIT_FAILURE : EXIT_SUCCESS;
 }

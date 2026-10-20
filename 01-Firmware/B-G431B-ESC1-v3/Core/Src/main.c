@@ -424,8 +424,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
 	HAL_TIM_Base_Start(&htim6); // 1us base time
 
-  if(eeprom_empty())
-	factory_reset_eeprom_regs();
+  if (eeprom_empty() && factory_reset_eeprom_regs() != HAL_OK) Error_Handler();
   load_eeprom_regs();
   reset_ram_regs();
   if (!control_configuration_valid()) hardware_fault_set(1U << HW_ERROR_BIT_CONFIGURATION);
