@@ -120,6 +120,13 @@ static volatile bool can_armed = false;
 static volatile uint32_t can_last_time = 0;
 static volatile uint32_t can_arm_generation = 0;
 
+typedef struct {
+  bool enabled;
+  uint32_t generation;
+  int16_t position_tenths_deg, velocity_dps, torque_mA, flux_mA;
+  uint8_t pos_kp, pos_kd, vel_kp;
+} ServoCommand;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -242,6 +249,40 @@ static void Servo_Check_Watchdogs(void)
     Servo_Disarm();
   }
   __set_PRIMASK(primask);
+}
+
+static ServoCommand Servo_Get_Command(void)
+{
+  uint32_t const primask = __get_PRIMASK();
+  __disable_irq();
+  ServoCommand command;
+  command.enabled = can_armed && regs[REG_TORQUE_ENABLE] && hardware_fault_status() == 0;
+  command.generation = can_arm_generation;
+  command.position_tenths_deg = (int16_t)MAKE_SHORT(regs[REG_GOAL_POSITION_DEG_L], regs[REG_GOAL_POSITION_DEG_H]);
+  command.velocity_dps = (int16_t)MAKE_SHORT(regs[REG_GOAL_VELOCITY_DPS_L], regs[REG_GOAL_VELOCITY_DPS_H]);
+  command.torque_mA = (int16_t)MAKE_SHORT(regs[REG_GOAL_TORQUE_CURRENT_MA_L], regs[REG_GOAL_TORQUE_CURRENT_MA_H]);
+  command.flux_mA = (int16_t)MAKE_SHORT(regs[REG_GOAL_FLUX_CURRENT_MA_L], regs[REG_GOAL_FLUX_CURRENT_MA_H]);
+  command.pos_kp = regs[REG_GOAL_POS_KP];
+  command.pos_kd = regs[REG_GOAL_POS_KD];
+  command.vel_kp = regs[REG_GOAL_VEL_KP];
+  __set_PRIMASK(primask);
+  return command;
+}
+
+static bool Servo_Publish_Currents(ServoCommand const *command, bool new_arm,
+                                   float torque_mA, float flux_mA)
+{
+  uint32_t const primask = __get_PRIMASK();
+  __disable_irq();
+  bool const accepted = command->enabled && can_armed && regs[REG_TORQUE_ENABLE] &&
+                        command->generation == can_arm_generation && hardware_fault_status() == 0;
+  if (accepted)
+  {
+    if (new_arm) API_FOC_Torque_Enable();
+    API_FOC_Set_Torque_Flux_Currents_mA(torque_mA, flux_mA);
+  }
+  __set_PRIMASK(primask);
+  return accepted;
 }
 
 void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
@@ -435,14 +476,14 @@ int main(void)
 
 			// update sensor
 			positionSensor_update();
+			ServoCommand const command = Servo_Get_Command();
 
-			if(can_armed && regs[REG_TORQUE_ENABLE] && hardware_fault_status() == 0)
+			if(command.enabled)
 			{
+				bool const new_arm = !torque_was_enable || applied_arm_generation != command.generation;
 				// transition from torque disable to enable
-				if(!torque_was_enable || applied_arm_generation != can_arm_generation)
+				if(new_arm)
 				{
-					torque_was_enable = true;
-					applied_arm_generation = can_arm_generation;
 					// ARM initialized goals; preserve commands already accepted after ARM.
 					// reset setpoints
 					setpoint_position_deg = 0.0f;
@@ -452,29 +493,27 @@ int main(void)
 					setpoint_position_deg = positionSensor_getDegreeMultiturn();
 					// pid reset
 					pid_reset(&pd_position);
-					// foc
-					API_FOC_Torque_Enable();
 				}
 
 
 
 				// compute position set-point from goal and EEPROM position limits
-				float const goal_position_deg = (float)((int16_t)(MAKE_SHORT(regs[REG_GOAL_POSITION_DEG_L],regs[REG_GOAL_POSITION_DEG_H])))/10.0f;
+				float const goal_position_deg = (float)command.position_tenths_deg / 10.0f;
 				float const reg_min_position_deg = (float)((int16_t)(MAKE_SHORT(regs[REG_MIN_POSITION_DEG_L],regs[REG_MIN_POSITION_DEG_H])));
 				float const reg_max_position_deg = (float)((int16_t)(MAKE_SHORT(regs[REG_MAX_POSITION_DEG_L],regs[REG_MAX_POSITION_DEG_H])));
 				setpoint_position_deg = fconstrain(goal_position_deg,reg_min_position_deg,reg_max_position_deg);
 				// compute velocity setpoint from goal and EEPROM velocity limit
-				float const goal_velocity_dps = (int16_t)(MAKE_SHORT(regs[REG_GOAL_VELOCITY_DPS_L],regs[REG_GOAL_VELOCITY_DPS_H]));
+				float const goal_velocity_dps = command.velocity_dps;
 				float const reg_max_velocity_dps = (int16_t)(MAKE_SHORT(regs[REG_MAX_VELOCITY_DPS_L],regs[REG_MAX_VELOCITY_DPS_H]));
 				setpoint_velocity_dps = fconstrain(goal_velocity_dps,-reg_max_velocity_dps,reg_max_velocity_dps);
 				// compute torque feed forward
-				float const torque_feed_forward_ma = (int16_t)(MAKE_SHORT(regs[REG_GOAL_TORQUE_CURRENT_MA_L],regs[REG_GOAL_TORQUE_CURRENT_MA_H]));
+				float const torque_feed_forward_ma = command.torque_mA;
 				// compute torque setpoint
 				float const error_position_deg = setpoint_position_deg-positionSensor_getDegreeMultiturn();
-				float const pos_kp = (float)regs[REG_GOAL_POS_KP]*2.0f;
-				float const pos_kd = (float)regs[REG_GOAL_POS_KD]*100.0f*2.0f;
+				float const pos_kp = (float)command.pos_kp*2.0f;
+				float const pos_kd = (float)command.pos_kd*100.0f*2.0f;
 				float const reg_max_current_ma = (uint16_t)(MAKE_SHORT(regs[REG_MAX_CURRENT_MA_L],regs[REG_MAX_CURRENT_MA_H]));
-				float const vel_kp = (float)regs[REG_GOAL_VEL_KP]/10.0f;
+				float const vel_kp = (float)command.vel_kp/10.0f;
 				error_velocity_dps = ALPHA_VELOCITY*(setpoint_velocity_dps-positionSensor_getVelocityDegree())+(1.0f-ALPHA_VELOCITY)*error_velocity_dps;
 				float const reg_reverse = regs[REG_INV_PHASE_MOTOR] == 0 ? 1.0f : -1.0f;
 				setpoint_torque_current_mA = reg_reverse*pid_process_antiwindup_clamp_with_ff(
@@ -489,11 +528,13 @@ int main(void)
 				);
 				//setpoint_torque_current_mA=(potentiometer_input_adc/4096)*3000.0f; // DEBUG
 				// set flux
-				float const goal_flux_current_mA = (int16_t)(MAKE_SHORT(regs[REG_GOAL_FLUX_CURRENT_MA_L],regs[REG_GOAL_FLUX_CURRENT_MA_H]));
+				float const goal_flux_current_mA = command.flux_mA;
 				setpoint_flux_current_mA = goal_flux_current_mA;
 
 				// update FOC parameters
-				API_FOC_Set_Torque_Flux_Currents_mA(setpoint_torque_current_mA,setpoint_flux_current_mA);
+				torque_was_enable = Servo_Publish_Currents(&command, new_arm,
+						setpoint_torque_current_mA, setpoint_flux_current_mA);
+				if (torque_was_enable) applied_arm_generation = command.generation;
 
 			}
 			else // torque disable
@@ -502,8 +543,11 @@ int main(void)
 				if(torque_was_enable)
 				{
 					torque_was_enable = false;
-					// disable FOC
-					API_FOC_Torque_Disable();
+					uint32_t const primask = __get_PRIMASK();
+					__disable_irq();
+					if (!can_armed || !regs[REG_TORQUE_ENABLE] || hardware_fault_status() != 0)
+						API_FOC_Torque_Disable();
+					__set_PRIMASK(primask);
 				}
 
 				// Servo_Disarm owns command reset; do not erase a newly received ARM.
@@ -518,6 +562,8 @@ int main(void)
 			}
 
 			// RAM Update
+			uint32_t const telemetry_primask = __get_PRIMASK();
+			__disable_irq();
 			regs[REG_PRESENT_POSITION_DEG_L] = LOW_BYTE((int16_t)(positionSensor_getDegreeMultiturn()*10.0f));
 			regs[REG_PRESENT_POSITION_DEG_H] = HIGH_BYTE((int16_t)(positionSensor_getDegreeMultiturn()*10.0f));
 			regs[REG_PRESENT_VELOCITY_DPS_L] = LOW_BYTE((int16_t)(positionSensor_getVelocityDegree()*1.0f));
@@ -529,6 +575,7 @@ int main(void)
 			regs[REG_PRESENT_VOLTAGE] = (uint16_t)(API_FOC_Get_Present_Voltage());
 			regs[REG_PRESENT_TEMPERATURE] = (uint16_t)(API_FOC_Get_Present_Temp());
 			regs[REG_MOVING] = (uint16_t)(fabsf(positionSensor_getVelocityDegree())) > (uint16_t)(regs[REG_MOVING_THRESHOLD_DPS]) ? 1 : 0;
+			__set_PRIMASK(telemetry_primask);
 
 			// DEBUG RAM Update
 			regs[REG_SETPOINT_POSITION_DEG_L] = LOW_BYTE((int16_t)(setpoint_position_deg*10.0f));

@@ -14,6 +14,8 @@ static unsigned failures;
 static unsigned assertions;
 static unsigned tx_count;
 static unsigned disable_count;
+static unsigned enable_count, current_updates;
+static float published_torque, published_flux;
 static unsigned pending_rx;
 static unsigned receive_buffer_too_small;
 static unsigned rx_read_calls;
@@ -27,6 +29,13 @@ static FDCAN_RxHeaderTypeDef pending_header;
 static uint8_t pending_data[64];
 
 void API_FOC_Torque_Disable(void) { ++disable_count; }
+void API_FOC_Torque_Enable(void) { ++enable_count; }
+void API_FOC_Set_Torque_Flux_Currents_mA(float torque, float flux) {
+    if (test_primask != 1) ++failures;
+    ++current_updates;
+    published_torque = torque;
+    published_flux = flux;
+}
 int positionSensor_isReady(void) { return sensor_ready; }
 float positionSensor_getDegreeMultiturn(void) { return mock_position_deg; }
 uint32_t HAL_GetTick(void) { return mock_tick; }

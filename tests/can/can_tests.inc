@@ -39,6 +39,7 @@ static void reset_fixture(bool armed)
     sensor_ready = true;
     tx_count = disable_count = pending_rx = receive_buffer_too_small = 0;
     rx_read_calls = fail_rx_read = refill_rx = 0;
+    enable_count = current_updates = 0;
     pending_header = (FDCAN_RxHeaderTypeDef){
         .Identifier = 1,
         .IdType = FDCAN_STANDARD_ID,
@@ -244,6 +245,33 @@ static void test_watchdog_rollover_and_boundaries(void)
     CHECK(test_primask == 0, "watchdog snapshot restores IRQ state");
 }
 
+static void test_command_snapshot_and_stale_publication(void)
+{
+    reset_fixture(true);
+    regs[REG_GOAL_POSITION_DEG_L] = 0x34;
+    regs[REG_GOAL_POSITION_DEG_H] = 0x12;
+    regs[REG_GOAL_TORQUE_CURRENT_MA_L] = 0xFE;
+    regs[REG_GOAL_TORQUE_CURRENT_MA_H] = 0xFF;
+    ServoCommand const command = Servo_Get_Command();
+    CHECK(command.enabled && command.position_tenths_deg == 0x1234 && command.torque_mA == -2,
+          "foreground takes a signed coherent command snapshot");
+    regs[REG_GOAL_POSITION_DEG_L] = regs[REG_GOAL_POSITION_DEG_H] = 0;
+    CHECK(command.position_tenths_deg == 0x1234, "later RX does not alter snapshot");
+    CHECK(Servo_Publish_Currents(&command, true, 123, -45), "current snapshot can publish");
+    CHECK(enable_count == 1 && current_updates == 1 && published_torque == 123 && published_flux == -45,
+          "new ARM initializes FOC and publishes the complete current pair");
+
+    Servo_Disarm();
+    CHECK(!Servo_Publish_Currents(&command, true, 999, 999), "DISARM rejects an in-flight calculation");
+    memset(pending_data, 0xFF, 8);
+    receive();
+    CHECK(!Servo_Publish_Currents(&command, true, 999, 999), "rearm rejects the preceding ARM generation");
+    CHECK(current_updates == 1, "stale computations never publish");
+    ServoCommand const rearmed = Servo_Get_Command();
+    CHECK(Servo_Publish_Currents(&rearmed, true, 12, 0), "fresh rearm generation publishes");
+    CHECK(enable_count == 2 && current_updates == 2, "rearm resets FOC exactly once");
+}
+
 int main(int argc, char **argv)
 {
     const char *suite = argc > 1 ? argv[1] : "all";
@@ -255,6 +283,7 @@ int main(int argc, char **argv)
         test_irq_bounds();
         test_disarm_and_rearm();
         test_watchdog_rollover_and_boundaries();
+        test_command_snapshot_and_stale_publication();
     }
     printf("CAN callback: %u assertions, %u failures\n", assertions, failures);
     return failures ? 1 : 0;
