@@ -37,6 +37,7 @@ static void reset_fixture(bool armed)
     mock_foc_tick = mock_tick;
     test_primask = 0;
     sensor_ready = true;
+    mock_calibrating = false;
     tx_count = disable_count = pending_rx = receive_buffer_too_small = 0;
     rx_read_calls = fail_rx_read = refill_rx = 0;
     enable_count = current_updates = 0;
@@ -145,6 +146,15 @@ static void test_arm_requires_healthy_encoder(void)
     receive();
     CHECK(!can_armed && !regs[REG_TORQUE_ENABLE], "sensor fault prevents ARM");
     CHECK(can_last_time == 17, "faulted ARM does not start watchdog");
+
+    reset_fixture(false);
+    memset(pending_data, 0xFF, 8);
+    mock_calibrating = true;
+    receive();
+    CHECK(!can_armed && !regs[REG_TORQUE_ENABLE], "calibration rejects ARM until cleanup ends");
+    memset(pending_data, 0, 8);
+    receive();
+    CHECK(disable_count == 1, "DISARM remains accepted during calibration");
 }
 
 static void test_irq_bounds(void)

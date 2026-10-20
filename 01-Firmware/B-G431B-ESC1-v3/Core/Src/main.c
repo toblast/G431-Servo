@@ -64,11 +64,6 @@
 #define CAN_COMMAND_TIMEOUT_MS 1000U
 #define FOC_TIMEOUT_MS 10U
 
-// Autocalibration at startup
-//   uncomment this line for calibrating the ESC/MOTOR at startup
-//   comment this line to avoid wearing EEPROM
-//#define PERFORM_AUTO_CALIBRATION_AT_STARTUP
-
 // Advanced settings (do not change)
 #define ALPHA_VELOCITY				0.24f // (default:0.24) F = 1000Hz ==> Fc (-3dB) = 20Hz
 
@@ -275,7 +270,8 @@ static bool Servo_Publish_Currents(ServoCommand const *command, bool new_arm,
   uint32_t const primask = __get_PRIMASK();
   __disable_irq();
   bool const accepted = command->enabled && can_armed && regs[REG_TORQUE_ENABLE] &&
-                        command->generation == can_arm_generation && hardware_fault_status() == 0;
+                        command->generation == can_arm_generation && hardware_fault_status() == 0 &&
+                        !API_FOC_Is_Calibrating();
   if (accepted)
   {
     if (new_arm) API_FOC_Torque_Enable();
@@ -312,10 +308,12 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
       continue;
     }
 
-    if ((RxData[0] == 0) && (RxData[1] == 0) &&
+    bool const disarm = (RxData[0] == 0) && (RxData[1] == 0) &&
         (RxData[2] == 0) && (RxData[3] == 0) &&
         (RxData[4] == 0) && (RxData[5] == 0) &&
-        (RxData[6] == 0) && (RxData[7] == 0))
+        (RxData[6] == 0) && (RxData[7] == 0);
+    if (API_FOC_Is_Calibrating() && !disarm) continue;
+    if (disarm)
     {
       Servo_Disarm();
     }
@@ -428,9 +426,6 @@ int main(void)
   // ADC callbacks read configuration and encoder state, even while IDLE.
   API_FOC_Init();
   API_FOC_Service_Update();
-#ifdef PERFORM_AUTO_CALIBRATION_AT_STARTUP
-  API_FOC_Calibrate();
-#endif
   // Accept commands only after every motor-control dependency is initialized.
   FDCAN_Config();
 //HAL_Serial_Print(&serial,"RESET!\n");
@@ -441,6 +436,7 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   bool torque_was_enable = false;
   uint32_t applied_arm_generation = 0;
+  bool calibration_button_was_down = false;
 	uint16_t present_time_us = __HAL_TIM_GET_COUNTER(&htim6);
 	uint16_t pid_last_time_us = present_time_us;
 	uint16_t service_last_time_us = present_time_us;
@@ -614,11 +610,15 @@ int main(void)
 //				regs[REG_TORQUE_ENABLE] = 0;
 
 			// Pressing the button starts calibration
-			if(HAL_GPIO_ReadPin(BUTTON_GPIO_Port,BUTTON_Pin)==GPIO_PIN_RESET)
+			bool const calibration_button_down = HAL_GPIO_ReadPin(BUTTON_GPIO_Port,BUTTON_Pin)==GPIO_PIN_RESET;
+			bool const calibration_requested = calibration_button_down && !calibration_button_was_down;
+			calibration_button_was_down = calibration_button_down;
+			if(calibration_requested)
 			{
 				Servo_Disarm();
 				// start FOC calibration
-				API_FOC_Calibrate();
+				int const result = API_FOC_Calibrate();
+				HAL_Serial_Print(&serial, "Calibration result: %d (0=success, 1=no motion, 2=pole pairs, 3=cancel/fault)\n", result);
 			}
 
 			// Handle serial communication

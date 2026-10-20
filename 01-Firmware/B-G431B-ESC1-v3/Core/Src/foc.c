@@ -61,12 +61,16 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 static volatile uint32_t foc_state = FOC_STATE_IDLE;
 static volatile uint16_t foc_timestamp_us = 0;
 static volatile uint32_t foc_timestamp_ms = 0;
+static volatile bool calibration_active = false;
+static volatile bool calibration_cancelled = false;
+static uint16_t calibration_last_sample_us;
+static uint32_t calibration_last_service_ms;
 
 // FOC setpoints variables
 static volatile float setpoint_torque_current_mA = 0.0f;
 static volatile float setpoint_flux_current_mA = 0.0f;
-static float setpoint_electrical_angle_rad = 0.0f;
-static float setpoint_flux_voltage_V = 0.0f;
+static volatile float setpoint_electrical_angle_rad = 0.0f;
+static volatile float setpoint_flux_voltage_V = 0.0f;
 
 // FOC variables
 static float present_Ids_mA = 0.0;
@@ -125,12 +129,18 @@ void API_FOC_Torque_Disable()
 {
 	uint32_t const primask = __get_PRIMASK();
 	__disable_irq();
+	if (calibration_active) calibration_cancelled = true;
 	foc_state = FOC_STATE_IDLE;
 	setpoint_torque_current_mA = 0.0f;
 	setpoint_flux_current_mA = 0.0f;
 
 	LL_FOC_coast();
 	__set_PRIMASK(primask);
+}
+
+bool API_FOC_Is_Calibrating(void)
+{
+	return calibration_active;
 }
 
 void API_FOC_Set_Torque_Flux_Currents_mA(float Iq_mA, float Id_mA)
@@ -250,120 +260,149 @@ void LL_FOC_Update_Voltage()
 }
 
 
-// user API function
-// this function synchronize physical and electrical angles, set motor normal/reverse rotation, and check pole pairs
-// this function uses REG_MOTOR_POLE_PAIRS register
+static void FOC_Calibration_Idle(void)
+{
+    uint32_t const primask = __get_PRIMASK();
+    __disable_irq();
+    foc_state = FOC_STATE_IDLE;
+    setpoint_electrical_angle_rad = 0.0f;
+    setpoint_flux_voltage_V = 0.0f;
+    LL_FOC_coast();
+    __set_PRIMASK(primask);
+}
+
+static bool FOC_Calibration_Wait(uint32_t duration_ms)
+{
+    uint32_t const start = HAL_GetTick();
+    uint32_t now;
+    do
+    {
+        uint16_t const sample_time = __HAL_TIM_GET_COUNTER(&htim6);
+        if ((uint16_t)(sample_time - calibration_last_sample_us) >= 250U)
+        {
+            positionSensor_update();
+            calibration_last_sample_us = __HAL_TIM_GET_COUNTER(&htim6);
+        }
+        now = HAL_GetTick();
+        if ((uint32_t)(now - calibration_last_service_ms) >= 10U)
+        {
+            API_FOC_Service_Update();
+            calibration_last_service_ms = now;
+        }
+        if (calibration_cancelled || hardware_fault_status() != 0 || !positionSensor_isReady())
+            return false;
+    } while ((uint32_t)(now - start) < duration_ms);
+    return true;
+}
+
+static bool FOC_Calibration_Enter_Flux(float angle_rad, float voltage_V)
+{
+    uint32_t const primask = __get_PRIMASK();
+    __disable_irq();
+    bool const allowed = calibration_active && !calibration_cancelled &&
+                         hardware_fault_status() == 0 && positionSensor_isReady();
+    if (allowed)
+    {
+        setpoint_electrical_angle_rad = angle_rad;
+        setpoint_flux_voltage_V = voltage_V;
+        foc_state = FOC_STATE_FLUX_CONTROL;
+    }
+    __set_PRIMASK(primask);
+    return allowed;
+}
+
+// Bench calibration only. Return 0 on success, 1 for no motion, 2 for pole-pair
+// mismatch, or 3 for invalid state, cancellation or a hardware/sensor fault.
 int API_FOC_Calibrate()
 {
-	// voltage
-#define CALIBRATION_VOLTAGE 3.0
-
-	// change mode
-	foc_state = FOC_STATE_IDLE;
-	HAL_Delay(200);
-
-    // reset setpoints
-    setpoint_electrical_angle_rad = 0.0f;
-    setpoint_flux_voltage_V = 0.0f;
-
-	// reset settings
-	regs[REG_INV_PHASE_MOTOR] = 0;
-	regs[REG_MOTOR_SYNCHRO_L] = 0;
-	regs[REG_MOTOR_SYNCHRO_H] = 0;
-	regs[REG_MOTOR_SYNCHRO_H] = 0;
-
-	// change mode
-	foc_state = FOC_STATE_FLUX_CONTROL;
-
-	// find natural direction
-
-	// set electrical angle
-	setpoint_electrical_angle_rad = M_3PI_2;
-	setpoint_flux_voltage_V = CALIBRATION_VOLTAGE; // hard-coded V setpoint
-	HAL_Delay(100);
-
-    // move one electrical revolution forward
-    for (int i = 0; i <=500; ++i )
+    uint32_t const primask = __get_PRIMASK();
+    __disable_irq();
+    if (calibration_active || regs[REG_TORQUE_ENABLE] ||
+        hardware_fault_status() != 0 || !positionSensor_isReady())
     {
-    	setpoint_electrical_angle_rad = M_3PI_2 + M_2PI * i / 500.0f;
-    	HAL_Delay(2);
+        __set_PRIMASK(primask);
+        return 3;
     }
-    HAL_Delay(200);
-    // take and angle in the middle
+    calibration_active = true;
+    calibration_cancelled = false;
+    __set_PRIMASK(primask);
+
+    uint8_t const old_reverse = regs[REG_INV_PHASE_MOTOR];
+    uint8_t const old_sync_l = regs[REG_MOTOR_SYNCHRO_L];
+    uint8_t const old_sync_h = regs[REG_MOTOR_SYNCHRO_H];
+    int result = 3;
+    calibration_last_sample_us = __HAL_TIM_GET_COUNTER(&htim6);
+    calibration_last_service_ms = HAL_GetTick();
+    FOC_Calibration_Idle();
+    if (!FOC_Calibration_Wait(200)) goto done;
+
+    regs[REG_INV_PHASE_MOTOR] = 0;
+    regs[REG_MOTOR_SYNCHRO_L] = 0;
+    regs[REG_MOTOR_SYNCHRO_H] = 0;
+    if (!FOC_Calibration_Enter_Flux(M_3PI_2, 3.0f)) goto done;
+    if (!FOC_Calibration_Wait(100)) goto done;
+
+    for (int i = 0; i <= 500; ++i)
+    {
+        setpoint_electrical_angle_rad = M_3PI_2 + M_2PI * i / 500.0f;
+        if (!FOC_Calibration_Wait(2)) goto done;
+    }
+    if (!FOC_Calibration_Wait(200)) goto done;
     positionSensor_update();
+    if (hardware_fault_status() != 0 || calibration_cancelled) goto done;
     float const mid_angle = positionSensor_getRadians();
 
-    // move one electrical revolution backward
-    for (int i = 500; i >=0; --i )
+    for (int i = 500; i >= 0; --i)
     {
-    	setpoint_electrical_angle_rad = M_3PI_2 + M_2PI * i / 500.0f;
-    	HAL_Delay(2);
+        setpoint_electrical_angle_rad = M_3PI_2 + M_2PI * i / 500.0f;
+        if (!FOC_Calibration_Wait(2)) goto done;
     }
-    HAL_Delay(200);
-    // take and angle in the end
+    if (!FOC_Calibration_Wait(200)) goto done;
     positionSensor_update();
+    if (hardware_fault_status() != 0 || calibration_cancelled) goto done;
     float const end_angle = positionSensor_getRadians();
+    FOC_Calibration_Idle();
 
-    // release motor
-    setpoint_electrical_angle_rad = 0.0f;
-    setpoint_flux_voltage_V = 0.0f;
-
-	// change mode
-	foc_state = FOC_STATE_IDLE;
-
-    // determine the direction the sensor moved
-    float const delta_angle = mid_angle-end_angle;
-    if(fabsf(delta_angle)<0.1f) // arbitrary delta angle
+    float const delta_angle = mid_angle - end_angle;
+    if (!isfinite(delta_angle) || fabsf(delta_angle) < 0.1f)
     {
-    	HAL_Serial_Print(&serial,"Calibration failed (motor did not turn)\n",0 );
-    	return 1; // failed calibration
+        result = 1;
+        goto done;
     }
-    if(delta_angle>0.0f)
+    regs[REG_INV_PHASE_MOTOR] = delta_angle > 0.0f ? 0 : 1;
+    float const pole_pairs = regs[REG_MOTOR_POLE_PAIRS];
+    if (fabsf(fabsf(delta_angle) * pole_pairs - M_2PI) > 0.5f)
     {
-    	regs[REG_INV_PHASE_MOTOR] = 0;
-    	HAL_Serial_Print(&serial,"Normal (%d)\n",0 ); // CCW
-    }
-    else
-    {
-    	regs[REG_INV_PHASE_MOTOR] = 1;
-    	HAL_Serial_Print(&serial,"Reverse (%d)\n",1 ); // CW
+        result = 2;
+        goto done;
     }
 
-    // check pole pairs
-    float const reg_pole_pairs = regs[REG_MOTOR_POLE_PAIRS];
-    if( fabsf(fabsf(delta_angle)*reg_pole_pairs-M_2PI) > 0.5f )
-    {
-    	HAL_Serial_Print(&serial,"PP error (%d)\n",(int)( M_2PI/fabsf(delta_angle) ) );
-    	return 2; // failed calibration
-    }
-
-    // set electrical angle
-    setpoint_electrical_angle_rad = 0.0f;
-    setpoint_flux_voltage_V = CALIBRATION_VOLTAGE; // hard-coded V setpoint
-
-	// change mode
-	foc_state = FOC_STATE_FLUX_CONTROL;
-
-	// wait
-    HAL_Delay(1000);
+    if (!FOC_Calibration_Enter_Flux(0.0f, 3.0f)) goto done;
+    if (!FOC_Calibration_Wait(1000)) goto done;
     positionSensor_update();
+    if (hardware_fault_status() != 0 || calibration_cancelled) goto done;
     float const reverse = regs[REG_INV_PHASE_MOTOR] == 0 ? 1.0f : -1.0f;
-    float const phase_synchro_offset_rad = normalize_angle(-positionSensor_getRadians()*reg_pole_pairs*reverse);
-	HAL_Serial_Print(&serial,"Synchro (%d)\n",(int)(RADIANS_TO_DEGREES(phase_synchro_offset_rad)) );
-	regs[REG_MOTOR_SYNCHRO_L] = LOW_BYTE((int)RADIANS_TO_DEGREES(phase_synchro_offset_rad));
-	regs[REG_MOTOR_SYNCHRO_H] = HIGH_BYTE((int)RADIANS_TO_DEGREES(phase_synchro_offset_rad));
+    float const offset = normalize_angle(-positionSensor_getRadians() * pole_pairs * reverse);
+    regs[REG_MOTOR_SYNCHRO_L] = LOW_BYTE((int)RADIANS_TO_DEGREES(offset));
+    regs[REG_MOTOR_SYNCHRO_H] = HIGH_BYTE((int)RADIANS_TO_DEGREES(offset));
+    FOC_Calibration_Idle();
+    // Keep calibration_active true through persistence so CAN ARM stays rejected.
+    if (hardware_fault_status() != 0 || calibration_cancelled) goto done;
+    store_eeprom_regs();
+    result = 0;
 
-    // release motor
-    setpoint_electrical_angle_rad = 0.0f;
-    setpoint_flux_voltage_V = 0.0f;
-
-	// change mode
-	foc_state = FOC_STATE_IDLE;
-
-	// store calibration into EEPROM
-	store_eeprom_regs();
-
-	return 0; // calibration success
+done:
+    FOC_Calibration_Idle();
+    if (result != 0)
+    {
+        regs[REG_INV_PHASE_MOTOR] = old_reverse;
+        regs[REG_MOTOR_SYNCHRO_L] = old_sync_l;
+        regs[REG_MOTOR_SYNCHRO_H] = old_sync_h;
+    }
+    __disable_irq();
+    calibration_active = false;
+    __set_PRIMASK(primask);
+    return result;
 }
 
 

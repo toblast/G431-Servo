@@ -13,10 +13,12 @@ extern "C" {
 #endif
 
 #include "stm32g4xx_hal.h"
+#include <stdbool.h>
 
 void API_FOC_Init();
 
 int API_FOC_Calibrate();
+bool API_FOC_Is_Calibrating(void);
 
 void API_FOC_Torque_Enable();
 void API_FOC_Torque_Disable();

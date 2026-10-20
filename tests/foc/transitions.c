@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include "control_table.h"
 #include "pid.h"
 
@@ -68,7 +69,9 @@ int main(void)
     CHECK(foc_state == FOC_STATE_IDLE);
 
     test_primask = 1;
+    calibration_active = true;
     API_FOC_Torque_Disable();
+    CHECK(calibration_active && calibration_cancelled);
     CHECK(test_primask == 1);
     puts(failures ? "FOC transition regressions failed." : "FOC transition regressions passed.");
     return failures ? EXIT_FAILURE : EXIT_SUCCESS;

@@ -24,6 +24,7 @@ static unsigned refill_rx;
 static uint32_t mock_tick;
 static uint32_t mock_foc_tick;
 static bool sensor_ready = true;
+static bool mock_calibrating;
 static float mock_position_deg = 90.0f;
 static FDCAN_RxHeaderTypeDef pending_header;
 static uint8_t pending_data[64];
@@ -37,6 +38,7 @@ void API_FOC_Set_Torque_Flux_Currents_mA(float torque, float flux) {
     published_flux = flux;
 }
 int positionSensor_isReady(void) { return sensor_ready; }
+bool API_FOC_Is_Calibrating(void) { return mock_calibrating; }
 float positionSensor_getDegreeMultiturn(void) { return mock_position_deg; }
 uint32_t HAL_GetTick(void) { return mock_tick; }
 uint32_t API_FOC_Get_Timestamp_ms(void) {
