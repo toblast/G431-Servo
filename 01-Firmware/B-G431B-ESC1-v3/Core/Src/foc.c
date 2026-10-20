@@ -459,7 +459,12 @@ void API_FOC_Torque_Update()
 			float const theta_rad = normalize_angle(positionSensor_getRadiansEstimation(foc_timestamp_us)*reg_pole_pairs*reverse+ phase_offset_rad + phase_synchro_offset_rad);
 
 			// [Cosine]
-			API_CORDIC_Processor_Update(theta_rad,&cosine_theta,&sine_theta);
+			if (API_CORDIC_Processor_Update(theta_rad,&cosine_theta,&sine_theta) != HAL_OK)
+			{
+				hardware_fault_set(1U << HW_ERROR_BIT_INTERNAL);
+				API_FOC_Torque_Disable();
+				return;
+			}
 
 			// [Clarke Transformation]
 			float const present_Ialpha = ( 2.0f * motor_current_mA[0] - motor_current_mA[1] - motor_current_mA[2] ) / 3.0f;
@@ -487,7 +492,12 @@ void API_FOC_Torque_Update()
 			float const theta_rad = normalize_angle(positionSensor_getRadiansEstimation(foc_timestamp_us)*reg_pole_pairs*reverse+ phase_offset_rad + phase_synchro_offset_rad);
 
 			// [Cosine]
-			API_CORDIC_Processor_Update(theta_rad,&cosine_theta,&sine_theta);
+			if (API_CORDIC_Processor_Update(theta_rad,&cosine_theta,&sine_theta) != HAL_OK)
+			{
+				hardware_fault_set(1U << HW_ERROR_BIT_INTERNAL);
+				API_FOC_Torque_Disable();
+				return;
+			}
 
 			// [Clarke Transformation]
 			float const present_Ialpha = ( 2.0f * motor_current_mA[0] - motor_current_mA[1] - motor_current_mA[2] ) / 3.0f;
@@ -559,7 +569,12 @@ void API_FOC_Torque_Update()
 			float const theta_rad = normalize_angle(setpoint_electrical_angle_rad);
 
 			// compute cosine and sine
-			API_CORDIC_Processor_Update(theta_rad,&cosine_theta,&sine_theta);
+			if (API_CORDIC_Processor_Update(theta_rad,&cosine_theta,&sine_theta) != HAL_OK)
+			{
+				hardware_fault_set(1U << HW_ERROR_BIT_INTERNAL);
+				API_FOC_Torque_Disable();
+				return;
+			}
 
 			// compute (Vd,Vq)
 			Vds = setpoint_flux_voltage_V; // torque setpoint open loop

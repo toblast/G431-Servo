@@ -13,6 +13,7 @@ extern "C" {
 #endif
 
 #include "stm32g4xx_hal.h"
+#include "stm32g4xx_ll_cordic.h"
 #include "math_tool.h"
 
 #include <math.h>
@@ -32,7 +33,7 @@ inline int32_t RadiansToQ31(float x)
   float mod = scaled - i;
   if (mod < 0) { mod += 1.0f; }
 
-  return (int32_t)(((mod > 0.5f) ? (mod - 1.0f) : mod) * 4294967296.0f);
+  return (int32_t)(((mod >= 0.5f) ? (mod - 1.0f) : mod) * 4294967296.0f);
 }
 
 float Q31ToRadians(int32_t) __attribute__((always_inline));
@@ -60,23 +61,29 @@ HAL_StatusTypeDef API_CORDIC_Processor_Update(float theta_rad, float * c, float 
 
 inline HAL_StatusTypeDef API_CORDIC_Processor_Update(float theta_rad, float * c, float * s)
 {
-	int32_t InBuff = RadiansToQ31(theta_rad);
-	int32_t OutBuff[2] = {0,0};
-	HAL_StatusTypeDef result = HAL_CORDIC_Calculate(&hcordic,&InBuff,OutBuff,1,0);
-	if(HAL_OK==result)
+	if (!isfinite(theta_rad) || theta_rad < 0.0f || theta_rad > M_2PI ||
+		hcordic.State != HAL_CORDIC_STATE_READY)
+		return HAL_ERROR;
+
+	// The single-calculation HAL path reads RDATA without a readiness timeout.
+	// Poll before reading so a failed accelerator cannot stall the ADC interrupt.
+	hcordic.State = HAL_CORDIC_STATE_BUSY;
+	LL_CORDIC_WriteData(hcordic.Instance, (uint32_t)RadiansToQ31(theta_rad));
+	for (unsigned attempt = 0; attempt < 64U; ++attempt)
 	{
-		*c = Q31ToRadians(OutBuff[0]);
-		*s = Q31ToRadians(OutBuff[1]);
+		if (LL_CORDIC_IsActiveFlag_RRDY(hcordic.Instance))
+		{
+			int32_t const cosine = (int32_t)LL_CORDIC_ReadData(hcordic.Instance);
+			int32_t const sine = (int32_t)LL_CORDIC_ReadData(hcordic.Instance);
+			*c = Q31ToRadians(cosine);
+			*s = Q31ToRadians(sine);
+			hcordic.State = HAL_CORDIC_STATE_READY;
+			return HAL_OK;
+		}
 	}
-	else
-	{
-		//regs[REG_PROTOCOL_CRC_FAIL]++; // DEBUG
-		// TODO hardware error !
-		// TODO hardware error !
-		// TODO hardware error !
-		// TODO hardware error !
-	}
-	return result;
+	hcordic.ErrorCode |= HAL_CORDIC_ERROR_TIMEOUT;
+	hcordic.State = HAL_CORDIC_STATE_ERROR;
+	return HAL_TIMEOUT;
 }
 
 #ifdef __cplusplus
