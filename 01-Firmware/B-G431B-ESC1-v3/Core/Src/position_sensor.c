@@ -138,32 +138,6 @@ float positionSensor_getRadiansEstimation(uint16_t time_us)
 	}
 }
 
-//  Shaft angle calculation
-//  angle is in radians [rad]
-void positionSensor_getAngle(void){
-  // raw data from the sensor
-  uint16_t angle_data;
-
-  float cpr = pow(2, 12);
-  AS5600_GetAngle(sensor->as5600Handle, &angle_data);
-
-  // tracking the number of rotations
-  // in order to expand angle range form [0,2PI]
-  // to basically infinity
-  float d_angle = (float)(angle_data - sensor->last_angle_data);
-  // if overflow happened track it as full rotation
-  if(abs(d_angle) > (0.8*cpr) ) sensor->full_rotation_offset += d_angle > 0 ? -M_2PI : M_2PI;
-  // save the current angle value for the next steps
-  // in order to know if overflow happened
-  sensor->last_angle_data = angle_data;
-
-  // return the full angle
-  // (number of full rotations)*2PI + current sensor angle
-   sensor->angle_rad = sensor->full_rotation_offset + ( (float)angle_data / (float)cpr) * M_2PI;
-   sensor->angle_deg = RADIANS_TO_DEGREES(sensor->angle_rad);
-
-}
-
 void positionSensor_update(void){
 
 
@@ -192,6 +166,7 @@ void positionSensor_update(void){
 		{	// set encoder error
 			regs[REG_HARDWARE_ERROR_STATUS] |= 1UL << HW_ERROR_BIT_POSITION_SENSOR_STATUS_ERROR;
 			regs[REG_PROTOCOL_CRC_FAIL]++;
+			return; // Preserve the complete last valid sample.
 		}
 
 		// tracking the number of rotations

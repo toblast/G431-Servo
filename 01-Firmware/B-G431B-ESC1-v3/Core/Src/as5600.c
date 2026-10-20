@@ -293,7 +293,7 @@ HAL_StatusTypeDef AS5600_GetRawAngle(AS5600_TypeDef *const a,
     		                AS5600_RAWANGLE_REG_ADDR,
     		                I2C_MEMADD_SIZE_8BIT,
 							(uint8_t*)&data.raw, 2,2) != HAL_OK) {
-        status = HAL_ERROR;
+        return HAL_ERROR;
     }
     *angle = ((data.bit.angle8_12<<8)&0xF00)|data.bit.angle0_7;
     return status;
@@ -307,7 +307,7 @@ HAL_StatusTypeDef AS5600_GetAngle(AS5600_TypeDef *const a, uint16_t *const angle
     		                AS5600_ANGLE_REG_ADDR,
     		                I2C_MEMADD_SIZE_8BIT,
 							(uint8_t*)&data.raw, 2,2) != HAL_OK) {
-        status = HAL_ERROR;
+        return HAL_ERROR;
     }
     *angle = ((data.bit.angle8_12<<8)&0xF00)|data.bit.angle0_7;
 
