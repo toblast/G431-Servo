@@ -34,6 +34,8 @@ static void reset_fixture(bool armed)
     can_arm_generation = 0;
     can_last_time = 17;
     mock_tick = 300;
+    mock_foc_tick = mock_tick;
+    test_primask = 0;
     sensor_ready = true;
     tx_count = disable_count = pending_rx = receive_buffer_too_small = 0;
     rx_read_calls = fail_rx_read = refill_rx = 0;
@@ -206,6 +208,42 @@ static void test_disarm_and_rearm(void)
     CHECK(can_armed && can_arm_generation == 2, "explicit rearm creates a fresh transition");
 }
 
+static void test_watchdog_rollover_and_boundaries(void)
+{
+    reset_fixture(true);
+    mock_tick = mock_foc_tick = 1017;
+    Servo_Check_Watchdogs();
+    CHECK(can_armed, "CAN remains armed at the exact timeout boundary");
+    mock_tick = mock_foc_tick = 1018;
+    Servo_Check_Watchdogs();
+    CHECK(!can_armed && disable_count == 1, "CAN expiry disables immediately");
+
+    reset_fixture(true);
+    can_last_time = UINT32_MAX - 200;
+    mock_tick = mock_foc_tick = UINT32_MAX - 100;
+    Servo_Check_Watchdogs();
+    CHECK(can_armed, "CAN does not expire prematurely before rollover");
+    can_last_time = UINT32_MAX - 500;
+    mock_tick = mock_foc_tick = 100;
+    Servo_Check_Watchdogs();
+    CHECK(can_armed, "CAN elapsed time remains valid after rollover");
+    mock_tick = mock_foc_tick = 600;
+    Servo_Check_Watchdogs();
+    CHECK(!can_armed, "CAN expires across rollover");
+
+    reset_fixture(true);
+    can_last_time = mock_tick = 4;
+    mock_foc_tick = UINT32_MAX - 5;
+    Servo_Check_Watchdogs();
+    CHECK(can_armed, "FOC remains healthy at ten milliseconds across rollover");
+    mock_tick = 5;
+    Servo_Check_Watchdogs();
+    CHECK(!can_armed, "FOC timeout disables across rollover");
+    CHECK(regs[REG_HARDWARE_ERROR_STATUS] & (1U << HW_ERROR_BIT_FOC_TIMEOUT),
+          "FOC timeout records a fault");
+    CHECK(test_primask == 0, "watchdog snapshot restores IRQ state");
+}
+
 int main(int argc, char **argv)
 {
     const char *suite = argc > 1 ? argv[1] : "all";
@@ -216,6 +254,7 @@ int main(int argc, char **argv)
         test_arm_requires_healthy_encoder();
         test_irq_bounds();
         test_disarm_and_rearm();
+        test_watchdog_rollover_and_boundaries();
     }
     printf("CAN callback: %u assertions, %u failures\n", assertions, failures);
     return failures ? 1 : 0;

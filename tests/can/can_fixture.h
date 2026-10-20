@@ -8,6 +8,7 @@
 
 uint8_t regs[REG_MAX];
 FDCAN_HandleTypeDef hfdcan1;
+uint32_t test_primask;
 
 static unsigned failures;
 static unsigned assertions;
@@ -19,6 +20,7 @@ static unsigned rx_read_calls;
 static unsigned fail_rx_read;
 static unsigned refill_rx;
 static uint32_t mock_tick;
+static uint32_t mock_foc_tick;
 static bool sensor_ready = true;
 static float mock_position_deg = 90.0f;
 static FDCAN_RxHeaderTypeDef pending_header;
@@ -28,6 +30,10 @@ void API_FOC_Torque_Disable(void) { ++disable_count; }
 int positionSensor_isReady(void) { return sensor_ready; }
 float positionSensor_getDegreeMultiturn(void) { return mock_position_deg; }
 uint32_t HAL_GetTick(void) { return mock_tick; }
+uint32_t API_FOC_Get_Timestamp_ms(void) {
+    if (test_primask != 1) ++failures;
+    return mock_foc_tick;
+}
 uint32_t HAL_FDCAN_GetRxFifoFillLevel(FDCAN_HandleTypeDef *handle, uint32_t fifo)
 {
     (void)handle;

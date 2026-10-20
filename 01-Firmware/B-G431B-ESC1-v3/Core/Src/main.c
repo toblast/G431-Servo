@@ -61,6 +61,8 @@
 // FOC service loop period in µs
 //  normal setting is 10000us (100Hz)
 #define SERVICE_LOOP_PERIOD 10000
+#define CAN_COMMAND_TIMEOUT_MS 1000U
+#define FOC_TIMEOUT_MS 10U
 
 // Autocalibration at startup
 //   uncomment this line for calibrating the ESC/MOTOR at startup
@@ -220,6 +222,25 @@ static void Servo_Disarm(void)
   memset(&regs[REG_GOAL_POSITION_DEG_L], 0,
          REG_PRESENT_POSITION_DEG_L - REG_GOAL_POSITION_DEG_L);
   API_FOC_Torque_Disable();
+  __set_PRIMASK(primask);
+}
+
+static void Servo_Check_Watchdogs(void)
+{
+  // Take one coherent time snapshot; an IRQ must not publish a newer timestamp
+  // between reading 'now' and subtracting the last accepted command/FOC time.
+  uint32_t const primask = __get_PRIMASK();
+  __disable_irq();
+  uint32_t const now = HAL_GetTick();
+  if (can_armed && (uint32_t)(now - can_last_time) > CAN_COMMAND_TIMEOUT_MS)
+  {
+    Servo_Disarm();
+  }
+  if ((uint32_t)(now - API_FOC_Get_Timestamp_ms()) > FOC_TIMEOUT_MS)
+  {
+    regs[REG_HARDWARE_ERROR_STATUS] |= 1U << HW_ERROR_BIT_FOC_TIMEOUT;
+    Servo_Disarm();
+  }
   __set_PRIMASK(primask);
 }
 
@@ -402,21 +423,7 @@ int main(void)
 			Servo_Disarm();
 		}
 
-		// CAN bus time-out
-		// CAN bus watchdog (time-out = 1s hard-coded)
-		if( can_armed && (HAL_GetTick()>can_last_time+1000) )
-		{
-			Servo_Disarm();
-		}
-
-		// FOC process time-out
-		// FOC watchdog (time-out = 10ms hard-coded)
-		if( HAL_GetTick() > API_FOC_Get_Timestamp_ms()+10 )
-		{
-			// error
-			regs[REG_HARDWARE_ERROR_STATUS] |= (1 << HW_ERROR_BIT_FOC_TIMEOUT);
-			Servo_Disarm();
-		}
+		Servo_Check_Watchdogs();
 
 		// 1 to 4Khz low priority process
 		present_time_us = __HAL_TIM_GET_COUNTER(&htim6);

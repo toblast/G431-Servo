@@ -37,9 +37,10 @@ HAL_StatusTypeDef HAL_FDCAN_AddMessageToTxFifoQ(FDCAN_HandleTypeDef *,
                                              FDCAN_TxHeaderTypeDef *, uint8_t *);
 
 /* Single-threaded host equivalents for short Cortex-M critical sections. */
-static inline uint32_t __get_PRIMASK(void) { return 0; }
-static inline void __disable_irq(void) { }
-static inline void __set_PRIMASK(uint32_t mask) { (void)mask; }
+extern uint32_t test_primask;
+static inline uint32_t __get_PRIMASK(void) { return test_primask; }
+static inline void __disable_irq(void) { test_primask = 1; }
+static inline void __set_PRIMASK(uint32_t mask) { test_primask = mask; }
 static inline void __enable_irq(void) { }
 
 #endif
