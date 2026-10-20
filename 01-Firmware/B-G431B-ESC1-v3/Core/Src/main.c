@@ -354,20 +354,22 @@ int main(void)
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
 	HAL_TIM_Base_Start(&htim6); // 1us base time
-	API_FOC_Init();
 
   if(eeprom_empty())
 	factory_reset_eeprom_regs();
   load_eeprom_regs();
   reset_ram_regs();
-  FDCAN_Config();
+  HAL_Serial_Init(&huart2,&serial);
   positionSensor_init(SENSOR_TYPE);
   positionSensor_update();
+  // ADC callbacks read configuration and encoder state, even while IDLE.
+  API_FOC_Init();
   API_FOC_Service_Update();
 #ifdef PERFORM_AUTO_CALIBRATION_AT_STARTUP
   API_FOC_Calibrate();
 #endif
-  HAL_Serial_Init(&huart2,&serial);
+  // Accept commands only after every motor-control dependency is initialized.
+  FDCAN_Config();
 //HAL_Serial_Print(&serial,"RESET!\n");
 
   /* USER CODE END 2 */

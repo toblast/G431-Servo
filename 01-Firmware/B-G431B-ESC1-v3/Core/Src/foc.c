@@ -134,6 +134,9 @@ void API_FOC_Set_Torque_Flux_Currents_mA(float Iq_mA, float Id_mA)
 // This function starts peripherals
 void API_FOC_Init()
 {
+	// Configure the math accelerator before any ADC callback can use it.
+	API_CORDIC_Processor_Init();
+
 	// Motor PWM init and BRAKE
 	__HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_1,0);
 	__HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_2,0);
@@ -150,8 +153,6 @@ void API_FOC_Init()
 	HAL_OPAMP_Start(&hopamp3);
 	HAL_ADC_Start_DMA(&hadc1,(uint32_t*)ADC1_DMA,5);
 	HAL_ADC_Start_DMA(&hadc2,(uint32_t*)ADC2_DMA,3);
-	// CORDIC init
-	API_CORDIC_Processor_Init();
 	// disable FOC
 	API_FOC_Torque_Disable();
 }
