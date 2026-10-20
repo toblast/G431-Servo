@@ -120,7 +120,17 @@ static void test_initialization_requires_valid_encoder(void)
     CHECK(regs[REG_HARDWARE_ERROR_STATUS] & (1U << HW_ERROR_BIT_POSITION_SENSOR_STATUS_ERROR));
 }
 
-
+static void test_initial_sample_has_zero_velocity(void)
+{
+    fixture(3072, 1000);
+    CHECK(positionSensor_init(AS5600_I2C) == 1);
+    CHECK(close_to(positionSensor_getDegreeMultiturn(), 270.0f, 0.01f));
+    CHECK(close_to(positionSensor_getVelocityDegree(), 0.0f, 0.01f));
+    htim6.counter = 1250;
+    positionSensor_update();
+    CHECK(close_to(positionSensor_getDegreeMultiturn(), 270.0f, 0.01f));
+    CHECK(close_to(positionSensor_getVelocityDegree(), 0.0f, 0.01f));
+}
 
 static void test_failed_runtime_sample_preserves_state(void)
 {
@@ -153,11 +163,44 @@ static void test_failed_runtime_sample_preserves_state(void)
     CHECK(regs[REG_HARDWARE_ERROR_STATUS] & (1U << HW_ERROR_BIT_POSITION_SENSOR_STATUS_ERROR));
 }
 
+static void test_equal_timestamps_do_not_make_stale_or_infinite_velocity(void)
+{
+    fixture(1024, 5000);
+    CHECK(positionSensor_init(AS5600_I2C) == 1);
+    CHECK(isfinite(positionSensor_getRadiansEstimation(5000)));
+    CHECK(!(regs[REG_HARDWARE_ERROR_STATUS] & (1U << HW_ERROR_BIT_POSITION_SENSOR_NOT_RESPONDING)));
+    set_angle(1025);
+    positionSensor_update();
+    CHECK(isfinite(positionSensor_getVelocityDegree()));
+    CHECK(close_to(positionSensor_getVelocityDegree(), 0.0f, 0.01f));
+}
 
+static void test_wraparound_uses_modular_elapsed_time(void)
+{
+    fixture(1024, 65535);
+    CHECK(positionSensor_init(AS5600_I2C) == 1);
+    htim6.counter = 0;
+    set_angle(1025);
+    positionSensor_update();
+    CHECK(close_to(positionSensor_getVelocityDegree(), 87890.625f, 10.0f));
+    CHECK(isfinite(positionSensor_getRadiansEstimation(0)));
+    CHECK(!(regs[REG_HARDWARE_ERROR_STATUS] & (1U << HW_ERROR_BIT_POSITION_SENSOR_NOT_RESPONDING)));
+}
 
-
-
-
+static void test_velocity_includes_acquisition_duration(void)
+{
+    fixture(1000, 1000);
+    acquisition_us = 40;
+    CHECK(positionSensor_init(AS5600_I2C) == 1);
+    /* Initialization reads status then angle; obtain the actual completion time. */
+    const uint16_t previous_completion = htim6.counter;
+    htim6.counter = (uint16_t)(previous_completion + 260);
+    set_angle(1003);
+    positionSensor_update();
+    const uint16_t elapsed_us = (uint16_t)(htim6.counter - previous_completion);
+    const float expected_dps = (3.0f * 360.0f / 4096.0f) * 1000000.0f / elapsed_us;
+    CHECK(close_to(positionSensor_getVelocityDegree(), expected_dps, 0.5f));
+}
 
 
 
@@ -177,6 +220,12 @@ int main(int argc, char **argv)
     }
     if (selected(group, "init")) {
         test_initialization_requires_valid_encoder();
+    }
+    if (selected(group, "timing")) {
+        test_initial_sample_has_zero_velocity();
+        test_equal_timestamps_do_not_make_stale_or_infinite_velocity();
+        test_wraparound_uses_modular_elapsed_time();
+        test_velocity_includes_acquisition_duration();
     }
     if (failures) fprintf(stderr, "%u sensor regression assertion(s) failed\n", failures);
     else puts("Sensor regression checks passed");

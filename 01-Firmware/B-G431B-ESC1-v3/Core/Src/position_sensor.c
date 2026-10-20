@@ -73,7 +73,12 @@ int positionSensor_init(e_sensor_type sensor_type)
             return 0;
         }
         sensor->last_angle_data = angle_data;
-        sensor->angle_rad = 0.0f;
+        sensor->angle_rad = (float)angle_data * (M_2PI / 4096.0f);
+        sensor->angle_deg = RADIANS_TO_DEGREES(sensor->angle_rad);
+        sensor->angle_prev_rad = sensor->angle_rad;
+        sensor->angle_prev_deg = sensor->angle_deg;
+        sensor->velocity_rad = 0.0f;
+        sensor->velocity_deg = 0.0f;
         sensor->lastUpdate = __HAL_TIM_GET_COUNTER(&htim6);
         sensor->initialized = 1;
         return 1;
@@ -96,24 +101,10 @@ float positionSensor_getRadiansEstimation(uint16_t time_us)
 	{
 	case AS5600_I2C:
 	{
-		uint16_t delta_t_us;
-		if (time_us <= sensor->lastUpdate) {
-			delta_t_us = 0xffff-sensor->lastUpdate+time_us;
-		}else{
-			delta_t_us = (time_us - sensor->lastUpdate);
-		}
+        uint16_t const delta_t_us = (uint16_t)(time_us - sensor->lastUpdate);
 
-
-		// position has been received during FOC algorithm execution
-		if(delta_t_us<0) // should never happend because of NVIC priority (TIM4 priority lower than ADC DMA priority)
-		{
-			// set encoder error
-			regs[REG_HARDWARE_ERROR_STATUS] |= 1UL << HW_ERROR_BIT_POSITION_SENSOR_TIMESTAMP;
-			// return error
-			return 0.0f; // force ZERO
-		}
 		// check old sample error
-		else if(delta_t_us>1200) //1.2ms
+		if(delta_t_us>1200) //1.2ms
 		{
 			// set encoder error
 			regs[REG_HARDWARE_ERROR_STATUS] |= 1UL << HW_ERROR_BIT_POSITION_SENSOR_NOT_RESPONDING;
@@ -146,18 +137,9 @@ void positionSensor_update(void){
 	// get new data from as5600 sensor
 	case AS5600_I2C:
 	{
-		float delta_time_us;
 		float d_angle;
 		uint16_t angle_data;
 		float cpr = pow(2, 12);
-
-		// calculate sample time
-		uint16_t now_us = __HAL_TIM_GET_COUNTER(&htim6);
-		if (now_us <= sensor->lastUpdate) {
-			delta_time_us = 0xffff-sensor->lastUpdate+now_us;
-		}else{
-			delta_time_us = (now_us - sensor->lastUpdate);
-		}
 
 		// raw data from the sensor
 		HAL_StatusTypeDef status = AS5600_GetAngle(sensor->as5600Handle, &angle_data);
@@ -168,6 +150,11 @@ void positionSensor_update(void){
 			regs[REG_PROTOCOL_CRC_FAIL]++;
 			return; // Preserve the complete last valid sample.
 		}
+
+        // Timestamp completion consistently with the initial sample.
+        uint16_t const now_us = __HAL_TIM_GET_COUNTER(&htim6);
+        uint16_t const delta_time_us = (uint16_t)(now_us - sensor->lastUpdate);
+        if (delta_time_us == 0) return;
 
 		// tracking the number of rotations
 		// in order to expand angle range form [0,2PI]
@@ -192,7 +179,7 @@ void positionSensor_update(void){
 		sensor->angle_prev_rad = sensor->angle_rad;
 		sensor->angle_prev_deg = sensor->angle_deg;
 
-		sensor->lastUpdate = __HAL_TIM_GET_COUNTER(&htim6);
+		sensor->lastUpdate = now_us;
 		break;
 	}
 	default:
