@@ -434,7 +434,8 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   bool torque_was_enable = false;
   uint32_t applied_arm_generation = 0;
-  bool calibration_button_was_down = false;
+  // A button held at power-up must be released before it can request motion.
+  bool calibration_button_was_down = true;
 	uint16_t present_time_us = __HAL_TIM_GET_COUNTER(&htim6);
 	uint16_t pid_last_time_us = present_time_us;
 	uint16_t service_last_time_us = present_time_us;

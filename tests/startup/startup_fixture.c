@@ -24,6 +24,11 @@ uint8_t regs[1];
 static bool configuration_loaded, ram_reset, sensor_ready, cordic_ready;
 static bool foc_ready, service_ready, serial_ready, can_ready;
 static unsigned adc_callbacks;
+static bool mock_button_down;
+#define BUTTON_GPIO_Port 0
+#define BUTTON_Pin 0
+#define GPIO_PIN_RESET 0
+static int HAL_GPIO_ReadPin(int port, int pin) { (void)port; (void)pin; return mock_button_down ? 0 : 1; }
 static int failure_step, step;
 static jmp_buf fatal_return;
 #define TIM_CHANNEL_1 1
@@ -100,6 +105,14 @@ int main(void)
         assert(false);
     }
     assert(!can_ready);
-    puts("Startup callback order, seven FOC peripheral failures and timebase failure passed.");
+    /* BUTTON_STATE */
+    bool const button_states[] = { true, true, false, true, true, false, true };
+    bool const requests[] = { false, false, false, true, false, false, true };
+    for (unsigned i = 0; i < sizeof button_states / sizeof *button_states; ++i) {
+        mock_button_down = button_states[i];
+        /* BUTTON_EDGE */
+        assert(calibration_requested == requests[i]);
+    }
+    puts("Startup order, peripheral/timebase failures and held-button interlock passed.");
     return 0;
 }
