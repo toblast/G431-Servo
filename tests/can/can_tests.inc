@@ -29,6 +29,11 @@ static void reset_fixture(bool armed)
     memset(regs, 0, sizeof(regs));
     memset(pending_data, 0x5A, sizeof(pending_data));
     regs[REG_ID] = 1;
+    regs[REG_MIN_POSITION_DEG_L] = LOW_BYTE(-180);
+    regs[REG_MIN_POSITION_DEG_H] = HIGH_BYTE(-180);
+    regs[REG_MAX_POSITION_DEG_L] = LOW_BYTE(180);
+    regs[REG_MAX_POSITION_DEG_H] = HIGH_BYTE(180);
+    mock_position_deg = 90;
     regs[REG_TORQUE_ENABLE] = armed ? 1 : 0;
     can_armed = armed;
     can_arm_generation = 0;
@@ -292,6 +297,15 @@ static void test_command_snapshot_and_stale_publication(void)
 
 int main(int argc, char **argv)
 {
+    const float rejected_positions[] = { NAN, INFINITY, -INFINITY, 181, -181, 40000 };
+    for (unsigned i = 0; i < sizeof rejected_positions / sizeof *rejected_positions; ++i) {
+        reset_fixture(false);
+        mock_position_deg = rejected_positions[i];
+        memset(pending_data, 0xff, 8);
+        receive();
+        CHECK(!can_armed && !regs[REG_TORQUE_ENABLE], "ARM rejects invalid or out-of-limit initial position");
+        CHECK(can_last_time == 17 && can_arm_generation == 0, "rejected ARM has no enable or watchdog effect");
+    }
     const char *suite = argc > 1 ? argv[1] : "all";
     if (strcmp(suite, "all") == 0 || strcmp(suite, "strict") == 0) {
         test_frame_validation();

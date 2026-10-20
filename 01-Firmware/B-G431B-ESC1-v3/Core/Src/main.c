@@ -339,9 +339,14 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
       }
       if (!can_armed)
       {
+        float const present_position = positionSensor_getDegreeMultiturn();
+        int16_t const minimum = (int16_t)MAKE_SHORT(regs[REG_MIN_POSITION_DEG_L], regs[REG_MIN_POSITION_DEG_H]);
+        int16_t const maximum = (int16_t)MAKE_SHORT(regs[REG_MAX_POSITION_DEG_L], regs[REG_MAX_POSITION_DEG_H]);
+        if (!isfinite(present_position) || present_position < minimum || present_position > maximum)
+          continue;
         memset(&regs[REG_GOAL_POSITION_DEG_L], 0,
                REG_PRESENT_POSITION_DEG_L - REG_GOAL_POSITION_DEG_L);
-        int16_t const position = (int16_t)(10.0f * positionSensor_getDegreeMultiturn());
+        int16_t const position = (int16_t)(10.0f * present_position);
         regs[REG_GOAL_POSITION_DEG_L] = LOW_BYTE(position);
         regs[REG_GOAL_POSITION_DEG_H] = HIGH_BYTE(position);
         ++can_arm_generation;
