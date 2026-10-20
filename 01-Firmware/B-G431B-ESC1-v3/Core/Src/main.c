@@ -109,7 +109,8 @@ HAL_Serial_Handler serial;
 
 // CAN communication, state and fail-safe
 static FDCAN_RxHeaderTypeDef RxHeader;
-static uint8_t RxData[8];
+/* HAL copies the DLC-derived byte count before software validation. */
+static uint8_t RxData[64];
 static FDCAN_TxHeaderTypeDef TxHeader;
 static uint8_t TxData[8];
 bool can_armed = false;
@@ -169,9 +170,9 @@ static void FDCAN_Config(void)
   }
 
   /* Configure global filter:
-     Filter all remote frames with STD and EXT ID
+     Reject all remote frames with STD and EXT ID
      Reject non matching frames with STD ID and EXT ID */
-  if (HAL_FDCAN_ConfigGlobalFilter(&hfdcan1, FDCAN_REJECT, FDCAN_REJECT, FDCAN_FILTER_REMOTE, FDCAN_FILTER_REMOTE) != HAL_OK)
+  if (HAL_FDCAN_ConfigGlobalFilter(&hfdcan1, FDCAN_REJECT, FDCAN_REJECT, FDCAN_REJECT_REMOTE, FDCAN_REJECT_REMOTE) != HAL_OK)
   {
     Error_Handler();
   }
@@ -182,6 +183,17 @@ static void FDCAN_Config(void)
 #else
   HAL_GPIO_WritePin(CAN_TERM_GPIO_Port, CAN_TERM_Pin, GPIO_PIN_RESET); // RESET means no bus termination
 #endif
+
+  /* Prepare Tx Header */
+  TxHeader.Identifier = 0;
+  TxHeader.IdType = FDCAN_STANDARD_ID;
+  TxHeader.TxFrameType = FDCAN_DATA_FRAME;
+  TxHeader.DataLength = FDCAN_DLC_BYTES_8;
+  TxHeader.ErrorStateIndicator = FDCAN_ESI_ACTIVE;
+  TxHeader.BitRateSwitch = FDCAN_BRS_OFF;
+  TxHeader.FDFormat = FDCAN_CLASSIC_CAN;
+  TxHeader.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
+  TxHeader.MessageMarker = 0;
 
   /* Start the FDCAN module */
   if (HAL_FDCAN_Start(&hfdcan1) != HAL_OK)
@@ -194,118 +206,79 @@ static void FDCAN_Config(void)
     Error_Handler();
   }
 
-  /* Prepare Tx Header */
-  TxHeader.Identifier = 0;
-  TxHeader.IdType = FDCAN_STANDARD_ID;
-  TxHeader.TxFrameType = FDCAN_DATA_FRAME;
-  TxHeader.DataLength = FDCAN_DLC_BYTES_8;
-  TxHeader.ErrorStateIndicator = FDCAN_ESI_ACTIVE;
-  TxHeader.BitRateSwitch = FDCAN_BRS_OFF;
-  TxHeader.FDFormat = FDCAN_CLASSIC_CAN;
-  TxHeader.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
-  TxHeader.MessageMarker = 0;
 }
 
 // CAN IT on message receive
 void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 {
-  if((RxFifo0ITs & FDCAN_IT_RX_FIFO0_NEW_MESSAGE) != 0)
+  if (hfdcan != &hfdcan1 || (RxFifo0ITs & FDCAN_IT_RX_FIFO0_NEW_MESSAGE) == 0)
   {
-  	// Handle CAN communication
-  	while( HAL_FDCAN_GetRxFifoFillLevel(&hfdcan1,FDCAN_RX_FIFO0)!=0)
+    return;
+  }
 
-    /* Retrieve Rx messages from RX FIFO0 */
-    if (HAL_FDCAN_GetRxMessage(hfdcan, FDCAN_RX_FIFO0, &RxHeader, RxData) == HAL_OK)
+  /* Bound interrupt work to messages already queued at entry. */
+  uint32_t remaining = HAL_FDCAN_GetRxFifoFillLevel(hfdcan, FDCAN_RX_FIFO0);
+  while (remaining-- != 0)
+  {
+    if (HAL_FDCAN_GetRxMessage(hfdcan, FDCAN_RX_FIFO0, &RxHeader, RxData) != HAL_OK)
     {
-		// decode message ID=0x000+ID
-		if(RxHeader.Identifier==regs[REG_ID]) // message from host controller
-		{
-		  // can watchdog re-arm
-		  if( can_armed )
-		  {
-			  can_last_time = HAL_GetTick();
-		  }
-		  uint32_t payload_length = RxHeader.DataLength>>16U;
-		  // check payload size = 8
-		  if(can_armed && payload_length==2) // Feed Forward Torque only
-		  {
-			  // TODO Frist BYTE is CODE OP : 0:Torque, 1:VEL 2:POS  N:Is Write M:is Read FF is start of enable
-
-			  // decode payload filed
-			  regs[REG_GOAL_TORQUE_CURRENT_MA_L] = RxData[0];
-			  regs[REG_GOAL_TORQUE_CURRENT_MA_H] = RxData[1];
-			  //HAL_Serial_Print(&serial,"CAN (2)\n");
-		  }
-		  else if(can_armed && payload_length==3) // Speed, VEL Kp
-		  {
-			  // decode payload filed
-			  regs[REG_GOAL_VELOCITY_DPS_L] = RxData[0];
-			  regs[REG_GOAL_VELOCITY_DPS_H] = RxData[1];
-			  regs[REG_GOAL_VEL_KP]  = RxData[4];
-			  //HAL_Serial_Print(&serial,"CAN (3)\n");
-		  }
-		  else if(can_armed && payload_length==5) // Position, POS Kp and Kd, VEL Kp
-		  {
-			  // decode payload filed
-			  regs[REG_GOAL_POSITION_DEG_L] = RxData[0];
-			  regs[REG_GOAL_POSITION_DEG_H] = RxData[1];
-			  regs[REG_GOAL_POS_KP]  = RxData[3];
-			  regs[REG_GOAL_POS_KD]  = RxData[4];
-			  regs[REG_GOAL_VEL_KP]  = RxData[5];
-			  //HAL_Serial_Print(&serial,"CAN (5)\n");
-		  }
-		  else if(payload_length==8) // position, speed, and torque feed forward, Kp/kd update
-		  {
-			  if( (RxData[0]==0xFF) && (RxData[1]==0xFF) && (RxData[2]==0xFF) && (RxData[3]==0xFF) &&
-				  (RxData[4]==0xFF) && (RxData[5]==0xFF) && (RxData[6]==0xFF) && (RxData[7]==0xFF) )
-			  {
-				  // init watch dog
-				  can_armed = true;
-				  can_last_time = HAL_GetTick();
-				  regs[REG_TORQUE_ENABLE] = 1;
-				  regs[REG_GOAL_POSITION_DEG_L] = 0;
-				  regs[REG_GOAL_POSITION_DEG_H] = 0;
-				  regs[REG_GOAL_VELOCITY_DPS_L] = 0;
-				  regs[REG_GOAL_VELOCITY_DPS_H] = 0;
-				  regs[REG_GOAL_TORQUE_CURRENT_MA_L] = 0;
-				  regs[REG_GOAL_TORQUE_CURRENT_MA_H] = 0;
-				  regs[REG_GOAL_POS_KP]  = 0;
-				  regs[REG_GOAL_POS_KD]  = 0;
-				  regs[REG_GOAL_VEL_KP]  = 0;
-				  //HAL_Serial_Print(&serial,"CAN request ARM\n");
-			  }
-			  else if(can_armed)
-			  {
-				  // replace by access read/write to register !
-
-
-				  // decode payload filed
-				  regs[REG_GOAL_POSITION_DEG_L] = RxData[0];
-				  regs[REG_GOAL_POSITION_DEG_H] = RxData[1];
-				  regs[REG_GOAL_VELOCITY_DPS_L] = RxData[2];
-				  regs[REG_GOAL_VELOCITY_DPS_H] = RxData[3];
-				  regs[REG_GOAL_TORQUE_CURRENT_MA_L] = RxData[4];
-				  regs[REG_GOAL_TORQUE_CURRENT_MA_H] = RxData[5];
-				  regs[REG_GOAL_POS_KP]  = RxData[6];
-				  regs[REG_GOAL_POS_KD]  = RxData[7];
-				  //HAL_Serial_Print(&serial,"CAN (8)\n");
-			  }
-		  }
-
-		  // then reply by a status frame (shortened)
-		  TxHeader.Identifier = 0x10+regs[REG_ID]; // each ESC replies with a message identifier = it is own ID
-		  TxHeader.DataLength = FDCAN_DLC_BYTES_4;
-		  TxData[0] = regs[REG_PRESENT_POSITION_DEG_L];
-		  TxData[1] = regs[REG_PRESENT_POSITION_DEG_H];
-		  TxData[2] = regs[REG_PRESENT_TORQUE_CURRENT_MA_L];
-		  TxData[3] = regs[REG_PRESENT_TORQUE_CURRENT_MA_H];
-		  //TxData[4] = regs[REG_HARDWARE_ERROR_STATUS];
-		  //TxData[5] = regs[REG_PRESENT_VOLTAGE];
-		  //TxData[6] = regs[REG_PRESENT_TEMPERATURE];
-		  //TxData[7] = ....
-		  HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1,&TxHeader,TxData);
-		}
+      break;
     }
+
+    /* The command protocol accepts one classic standard data-frame format. */
+    if (RxHeader.Identifier != regs[REG_ID] ||
+        RxHeader.IdType != FDCAN_STANDARD_ID ||
+        RxHeader.RxFrameType != FDCAN_DATA_FRAME ||
+        RxHeader.FDFormat != FDCAN_CLASSIC_CAN ||
+        RxHeader.BitRateSwitch != FDCAN_BRS_OFF ||
+        RxHeader.DataLength != FDCAN_DLC_BYTES_8)
+    {
+      continue;
+    }
+
+    if ((RxData[0] == 0xFF) && (RxData[1] == 0xFF) &&
+        (RxData[2] == 0xFF) && (RxData[3] == 0xFF) &&
+        (RxData[4] == 0xFF) && (RxData[5] == 0xFF) &&
+        (RxData[6] == 0xFF) && (RxData[7] == 0xFF))
+    {
+      regs[REG_GOAL_POSITION_DEG_L] = 0;
+      regs[REG_GOAL_POSITION_DEG_H] = 0;
+      regs[REG_GOAL_VELOCITY_DPS_L] = 0;
+      regs[REG_GOAL_VELOCITY_DPS_H] = 0;
+      regs[REG_GOAL_TORQUE_CURRENT_MA_L] = 0;
+      regs[REG_GOAL_TORQUE_CURRENT_MA_H] = 0;
+      regs[REG_GOAL_POS_KP] = 0;
+      regs[REG_GOAL_POS_KD] = 0;
+      regs[REG_GOAL_VEL_KP] = 0;
+      regs[REG_TORQUE_ENABLE] = 1;
+      can_armed = true;
+    }
+    else if (can_armed)
+    {
+      regs[REG_GOAL_POSITION_DEG_L] = RxData[0];
+      regs[REG_GOAL_POSITION_DEG_H] = RxData[1];
+      regs[REG_GOAL_VELOCITY_DPS_L] = RxData[2];
+      regs[REG_GOAL_VELOCITY_DPS_H] = RxData[3];
+      regs[REG_GOAL_TORQUE_CURRENT_MA_L] = RxData[4];
+      regs[REG_GOAL_TORQUE_CURRENT_MA_H] = RxData[5];
+      regs[REG_GOAL_POS_KP] = RxData[6];
+      regs[REG_GOAL_POS_KD] = RxData[7];
+    }
+    else
+    {
+      continue;
+    }
+
+    /* Only an accepted command starts or refreshes the watchdog. */
+    can_last_time = HAL_GetTick();
+
+    TxHeader.Identifier = 0x10 + regs[REG_ID];
+    TxHeader.DataLength = FDCAN_DLC_BYTES_4;
+    TxData[0] = regs[REG_PRESENT_POSITION_DEG_L];
+    TxData[1] = regs[REG_PRESENT_POSITION_DEG_H];
+    TxData[2] = regs[REG_PRESENT_TORQUE_CURRENT_MA_L];
+    TxData[3] = regs[REG_PRESENT_TORQUE_CURRENT_MA_H];
+    HAL_FDCAN_AddMessageToTxFifoQ(hfdcan, &TxHeader, TxData);
   }
 }
 
