@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "control_table.h"
+#include "binary_tool.h"
 
 uint8_t regs[REG_MAX];
 FDCAN_HandleTypeDef hfdcan1;
@@ -19,11 +20,13 @@ static unsigned fail_rx_read;
 static unsigned refill_rx;
 static uint32_t mock_tick;
 static bool sensor_ready = true;
+static float mock_position_deg = 90.0f;
 static FDCAN_RxHeaderTypeDef pending_header;
 static uint8_t pending_data[64];
 
 void API_FOC_Torque_Disable(void) { ++disable_count; }
 int positionSensor_isReady(void) { return sensor_ready; }
+float positionSensor_getDegreeMultiturn(void) { return mock_position_deg; }
 uint32_t HAL_GetTick(void) { return mock_tick; }
 uint32_t HAL_FDCAN_GetRxFifoFillLevel(FDCAN_HandleTypeDef *handle, uint32_t fifo)
 {

@@ -31,6 +31,7 @@
 #include "protocol.h"
 #include "control_table.h"
 #include "binary_tool.h"
+#include <string.h>
 
 /* USER CODE END Includes */
 
@@ -113,8 +114,9 @@ static FDCAN_RxHeaderTypeDef RxHeader;
 static uint8_t RxData[64];
 static FDCAN_TxHeaderTypeDef TxHeader;
 static uint8_t TxData[8];
-bool can_armed = false;
-uint32_t can_last_time = 0;
+static volatile bool can_armed = false;
+static volatile uint32_t can_last_time = 0;
+static volatile uint32_t can_arm_generation = 0;
 
 /* USER CODE END PV */
 
@@ -209,6 +211,18 @@ static void FDCAN_Config(void)
 }
 
 // CAN IT on message receive
+static void Servo_Disarm(void)
+{
+  uint32_t const primask = __get_PRIMASK();
+  __disable_irq();
+  can_armed = false;
+  regs[REG_TORQUE_ENABLE] = 0;
+  memset(&regs[REG_GOAL_POSITION_DEG_L], 0,
+         REG_PRESENT_POSITION_DEG_L - REG_GOAL_POSITION_DEG_L);
+  API_FOC_Torque_Disable();
+  __set_PRIMASK(primask);
+}
+
 void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 {
   if (hfdcan != &hfdcan1 || (RxFifo0ITs & FDCAN_IT_RX_FIFO0_NEW_MESSAGE) == 0)
@@ -236,7 +250,14 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
       continue;
     }
 
-    if ((RxData[0] == 0xFF) && (RxData[1] == 0xFF) &&
+    if ((RxData[0] == 0) && (RxData[1] == 0) &&
+        (RxData[2] == 0) && (RxData[3] == 0) &&
+        (RxData[4] == 0) && (RxData[5] == 0) &&
+        (RxData[6] == 0) && (RxData[7] == 0))
+    {
+      Servo_Disarm();
+    }
+    else if ((RxData[0] == 0xFF) && (RxData[1] == 0xFF) &&
         (RxData[2] == 0xFF) && (RxData[3] == 0xFF) &&
         (RxData[4] == 0xFF) && (RxData[5] == 0xFF) &&
         (RxData[6] == 0xFF) && (RxData[7] == 0xFF))
@@ -245,17 +266,17 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
       {
         continue;
       }
-      regs[REG_GOAL_POSITION_DEG_L] = 0;
-      regs[REG_GOAL_POSITION_DEG_H] = 0;
-      regs[REG_GOAL_VELOCITY_DPS_L] = 0;
-      regs[REG_GOAL_VELOCITY_DPS_H] = 0;
-      regs[REG_GOAL_TORQUE_CURRENT_MA_L] = 0;
-      regs[REG_GOAL_TORQUE_CURRENT_MA_H] = 0;
-      regs[REG_GOAL_POS_KP] = 0;
-      regs[REG_GOAL_POS_KD] = 0;
-      regs[REG_GOAL_VEL_KP] = 0;
-      regs[REG_TORQUE_ENABLE] = 1;
-      can_armed = true;
+      if (!can_armed)
+      {
+        memset(&regs[REG_GOAL_POSITION_DEG_L], 0,
+               REG_PRESENT_POSITION_DEG_L - REG_GOAL_POSITION_DEG_L);
+        int16_t const position = (int16_t)(10.0f * positionSensor_getDegreeMultiturn());
+        regs[REG_GOAL_POSITION_DEG_L] = LOW_BYTE(position);
+        regs[REG_GOAL_POSITION_DEG_H] = HIGH_BYTE(position);
+        ++can_arm_generation;
+        regs[REG_TORQUE_ENABLE] = 1;
+        can_armed = true;
+      }
     }
     else if (can_armed)
     {
@@ -274,7 +295,7 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
     }
 
     /* Only an accepted command starts or refreshes the watchdog. */
-    can_last_time = HAL_GetTick();
+    if (can_armed) can_last_time = HAL_GetTick();
 
     TxHeader.Identifier = 0x10 + regs[REG_ID];
     TxHeader.DataLength = FDCAN_DLC_BYTES_4;
@@ -357,6 +378,7 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   bool torque_was_enable = false;
+  uint32_t applied_arm_generation = 0;
 	uint16_t present_time_us = __HAL_TIM_GET_COUNTER(&htim6);
 	uint16_t pid_last_time_us = present_time_us;
 	uint16_t service_last_time_us = present_time_us;
@@ -377,24 +399,14 @@ int main(void)
 	  	// hardware error clears torque enable register and disable FOC torque controller
 		if( regs[REG_HARDWARE_ERROR_STATUS] != 0 )
 		{
-			// disable torque
-			regs[REG_TORQUE_ENABLE] = 0;
-			// disable FOC
-			API_FOC_Torque_Disable();
-			// disarm CAN
-			can_armed = false;
+			Servo_Disarm();
 		}
 
 		// CAN bus time-out
 		// CAN bus watchdog (time-out = 1s hard-coded)
 		if( can_armed && (HAL_GetTick()>can_last_time+1000) )
 		{
-			// disable torque
-			regs[REG_TORQUE_ENABLE] = 0;
-			// disable FOC
-			API_FOC_Torque_Disable();
-			// disarm CAN
-			can_armed = false;
+			Servo_Disarm();
 		}
 
 		// FOC process time-out
@@ -403,12 +415,7 @@ int main(void)
 		{
 			// error
 			regs[REG_HARDWARE_ERROR_STATUS] |= (1 << HW_ERROR_BIT_FOC_TIMEOUT);
-			// disable torque
-			regs[REG_TORQUE_ENABLE] = 0;
-			// disable FOC
-			API_FOC_Torque_Disable();
-			// disarm CAN
-			can_armed = false;
+			Servo_Disarm();
 		}
 
 		// 1 to 4Khz low priority process
@@ -422,28 +429,14 @@ int main(void)
 			// update sensor
 			positionSensor_update();
 
-			if(regs[REG_TORQUE_ENABLE])
+			if(can_armed && regs[REG_TORQUE_ENABLE] && regs[REG_HARDWARE_ERROR_STATUS] == 0)
 			{
 				// transition from torque disable to enable
-				if(!torque_was_enable)
+				if(!torque_was_enable || applied_arm_generation != can_arm_generation)
 				{
 					torque_was_enable = true;
-					// set goal position to present position to avoid mechanical glicth
-					regs[REG_GOAL_POSITION_DEG_L] = LOW_BYTE((int16_t)(10.0f*positionSensor_getDegreeMultiturn()));
-					regs[REG_GOAL_POSITION_DEG_H] = HIGH_BYTE((int16_t)(10.0f*positionSensor_getDegreeMultiturn()));
-					// reset goal velocity
-					regs[REG_GOAL_VELOCITY_DPS_L] = 0;
-					regs[REG_GOAL_VELOCITY_DPS_H] = 0;
-					// reset feed-forward torque
-					regs[REG_GOAL_TORQUE_CURRENT_MA_L] = 0;
-					regs[REG_GOAL_TORQUE_CURRENT_MA_H] = 0;
-					// reset flux refenrece
-					regs[REG_GOAL_FLUX_CURRENT_MA_L] = 0;
-					regs[REG_GOAL_FLUX_CURRENT_MA_H] = 0;
-					// reset K
-					regs[REG_GOAL_POS_KP] = 0;
-					regs[REG_GOAL_POS_KD] = 0;
-					regs[REG_GOAL_VEL_KP] = 0;
+					applied_arm_generation = can_arm_generation;
+					// ARM initialized goals; preserve commands already accepted after ARM.
 					// reset setpoints
 					setpoint_position_deg = 0.0f;
 					setpoint_velocity_dps = 0.0f;
@@ -506,18 +499,7 @@ int main(void)
 					API_FOC_Torque_Disable();
 				}
 
-				// reset unused RAM
-				regs[REG_GOAL_POSITION_DEG_L] = 0;
-				regs[REG_GOAL_POSITION_DEG_H] = 0;
-				regs[REG_GOAL_VELOCITY_DPS_L] = 0;
-				regs[REG_GOAL_VELOCITY_DPS_H] = 0;
-				regs[REG_GOAL_TORQUE_CURRENT_MA_L] = 0;
-				regs[REG_GOAL_TORQUE_CURRENT_MA_H] = 0;
-				regs[REG_GOAL_FLUX_CURRENT_MA_L] = 0;
-				regs[REG_GOAL_FLUX_CURRENT_MA_H] = 0;
-				regs[REG_GOAL_POS_KP] = 0;
-				regs[REG_GOAL_POS_KD] = 0;
-				regs[REG_GOAL_VEL_KP] = 0;
+				// Servo_Disarm owns command reset; do not erase a newly received ARM.
 
 				// reset all setpoints
 				setpoint_position_deg = 0.0f;
@@ -580,12 +562,7 @@ int main(void)
 			// Pressing the button starts calibration
 			if(HAL_GPIO_ReadPin(BUTTON_GPIO_Port,BUTTON_Pin)==GPIO_PIN_RESET)
 			{
-				// disable torque
-				regs[REG_TORQUE_ENABLE] = 0;
-				// disable FOC
-				API_FOC_Torque_Disable();
-				// disarm CAN
-				can_armed = false;
+				Servo_Disarm();
 				// start FOC calibration
 				API_FOC_Calibrate();
 			}

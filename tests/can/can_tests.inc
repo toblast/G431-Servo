@@ -31,6 +31,7 @@ static void reset_fixture(bool armed)
     regs[REG_ID] = 1;
     regs[REG_TORQUE_ENABLE] = armed ? 1 : 0;
     can_armed = armed;
+    can_arm_generation = 0;
     can_last_time = 17;
     mock_tick = 300;
     sensor_ready = true;
@@ -171,6 +172,40 @@ static void test_irq_bounds(void)
     CHECK(!rx_read_calls && pending_rx == 1, "unrelated controller does not consume FIFO");
 }
 
+static void test_disarm_and_rearm(void)
+{
+    reset_fixture(false);
+    memset(pending_data, 0xFF, 8);
+    receive();
+    CHECK(can_arm_generation == 1, "ARM identifies a new enable transition");
+    CHECK((int16_t)MAKE_SHORT(regs[REG_GOAL_POSITION_DEG_L], regs[REG_GOAL_POSITION_DEG_H]) == 900,
+          "ARM holds measured position");
+
+    memset(pending_data, 1, 8);
+    receive();
+    uint8_t command[REG_PRESENT_POSITION_DEG_L - REG_GOAL_POSITION_DEG_L];
+    memcpy(command, &regs[REG_GOAL_POSITION_DEG_L], sizeof command);
+    memset(pending_data, 0xFF, 8);
+    receive();
+    CHECK(can_arm_generation == 1, "duplicate ARM is idempotent");
+    CHECK(memcmp(command, &regs[REG_GOAL_POSITION_DEG_L], sizeof command) == 0,
+          "duplicate ARM preserves accepted goals");
+
+    memset(pending_data, 0, 8);
+    receive();
+    CHECK(!can_armed && !regs[REG_TORQUE_ENABLE], "zero DISARM disables command acceptance");
+    CHECK(disable_count == 1, "DISARM disables FOC immediately");
+    for (unsigned i = REG_GOAL_POSITION_DEG_L; i < REG_PRESENT_POSITION_DEG_L; ++i)
+        CHECK(regs[i] == 0, "DISARM clears every command field");
+
+    memset(pending_data, 0x5A, 8);
+    receive();
+    CHECK(!can_armed && !regs[REG_TORQUE_ENABLE], "ordinary command cannot rearm");
+    memset(pending_data, 0xFF, 8);
+    receive();
+    CHECK(can_armed && can_arm_generation == 2, "explicit rearm creates a fresh transition");
+}
+
 int main(int argc, char **argv)
 {
     const char *suite = argc > 1 ? argv[1] : "all";
@@ -180,6 +215,7 @@ int main(int argc, char **argv)
         test_full_command();
         test_arm_requires_healthy_encoder();
         test_irq_bounds();
+        test_disarm_and_rearm();
     }
     printf("CAN callback: %u assertions, %u failures\n", assertions, failures);
     return failures ? 1 : 0;
