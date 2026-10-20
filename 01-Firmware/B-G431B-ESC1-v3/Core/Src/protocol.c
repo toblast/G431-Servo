@@ -9,6 +9,9 @@
 #include "control_table.h"
 #include "binary_tool.h"
 #include "serial.h"
+#include "main.h"
+#include "foc.h"
+#include <string.h>
 
 extern HAL_Serial_Handler serial;
 
@@ -110,8 +113,6 @@ void packet_encapsulate(uint32_t payload_status_length) // length from instructi
 #define INSTR_FACTORY_RESET	0x06
 #define INSTR_REBOOT       	0x08
 #define INSTR_STATUS       	0x55
-#define INSTR_SYNC_READ     0x82
-#define INSTR_SYNC_WRITE    0x83
 
 #define ERROR_NONE					0x00
 #define ERROR_RESULT_FAIL			0x01
@@ -121,6 +122,20 @@ void packet_encapsulate(uint32_t payload_status_length) // length from instructi
 #define ERROR_DATA_LENGTH_ERROR  	0x05
 #define ERROR_DATA_LIMIT_ERROR  	0x06
 #define ERROR_ACCESS_ERROR  		0x07
+
+static bool protocol_write_registers(uint16_t address, uint16_t length, uint8_t const *data)
+{
+    if (length == 0 || address >= REG_MAX || length > REG_MAX - address) return false;
+    bool const configuration = address < REG_TORQUE_ENABLE && length <= REG_TORQUE_ENABLE - address;
+    bool const led = address == REG_LED && length == 1;
+    uint32_t const primask = __get_PRIMASK();
+    __disable_irq();
+    bool const allowed = led || (configuration && Servo_Is_Disarmed());
+    if (allowed) memcpy(&regs[address], data, length);
+    __set_PRIMASK(primask);
+    if (allowed && configuration) store_eeprom_regs();
+    return allowed;
+}
 
 void instruction_handler()
 {
@@ -145,7 +160,8 @@ void instruction_handler()
 			uint16_t address = MAKE_SHORT(rx_packet_buffer[PKT_PARAMETER0],rx_packet_buffer[PKT_PARAMETER1]);
 			uint16_t length =  MAKE_SHORT(rx_packet_buffer[PKT_PARAMETER2],rx_packet_buffer[PKT_PARAMETER3]);
 			// capture value
-			if(address<REG_MAX)
+			if(MAKE_SHORT(rx_packet_buffer[PKT_LENGTH_L],rx_packet_buffer[PKT_LENGTH_H]) == 7 &&
+			   length != 0 && address < REG_MAX && length <= REG_MAX - address)
 			{
 				// reply with a status packet with ERR only
 				tx_packet_buffer[PKT_INSTRUCTION]= INSTR_STATUS;
@@ -171,17 +187,10 @@ void instruction_handler()
 			uint16_t address = MAKE_SHORT(rx_packet_buffer[PKT_PARAMETER0],rx_packet_buffer[PKT_PARAMETER1]);
 			// TODO ; depend on length of packet
 			uint16_t value_length =  MAKE_SHORT(rx_packet_buffer[PKT_LENGTH_L],rx_packet_buffer[PKT_LENGTH_H])-2-1-2; // remove INSTR, CRC-16 and PARAM0/1
-			// write into register
-			if(address<REG_MAX)
+			// Configuration and LED only; runtime motor state belongs to CAN.
+			if(MAKE_SHORT(rx_packet_buffer[PKT_LENGTH_L],rx_packet_buffer[PKT_LENGTH_H]) >= 6 &&
+			   protocol_write_registers(address, value_length, &rx_packet_buffer[PKT_PARAMETER2]))
 			{
-				// TODO : check data range for global position, and other registers in RAM
-				for(uint32_t index=0;index<value_length;++index)
-					regs[address+index]=rx_packet_buffer[PKT_PARAMETER2+index];
-				// store when accessing EEPROM regs
-				if(address<REG_TORQUE_ENABLE)
-				{
-					store_eeprom_regs();
-				}
 				// reply with a status packet with ERR only
 				tx_packet_buffer[PKT_INSTRUCTION]= INSTR_STATUS;
 				tx_packet_buffer[PKT_ERROR]= 0x00; // TODO : Alarm flag to handle here
@@ -198,39 +207,9 @@ void instruction_handler()
 			HAL_Serial_Write(&serial, (uint8_t const *)tx_packet_buffer,tx_packet_length);
 		}
 		break;
-	case INSTR_SYNC_READ:
-		{
-
-		}
-		break;
-	case INSTR_SYNC_WRITE:
-		{
-			// decode length of [ID,PARAMS]
-			uint16_t const values_length =  MAKE_SHORT(rx_packet_buffer[PKT_LENGTH_L],rx_packet_buffer[PKT_LENGTH_H])-1-4-2; // remove INSTR, CRC-16 and PARAM0/1/2/3
-			// decode the address
-			uint16_t address = MAKE_SHORT(rx_packet_buffer[PKT_PARAMETER0],rx_packet_buffer[PKT_PARAMETER1]);
-			// decode the size of data per ID
-			uint32_t const data_length = MAKE_SHORT(rx_packet_buffer[PKT_PARAMETER2],rx_packet_buffer[PKT_PARAMETER3]);
-			// count the [ID,PARAMS]
-			uint16_t const number_of_id_and_data = values_length / (1+data_length); // 1 for ID + data_length
-			// search for my ID
-			uint32_t const my_id = regs[REG_ID];
-			for(uint32_t index=0;index<number_of_id_and_data;++index)
-			{
-				uint32_t position = PKT_PARAMETER4+index*(data_length+1);
-				uint32_t id = rx_packet_buffer[position];
-				// found my own id in one ID,PARAMS]
-				if(id==my_id)
-				{
-					// update RAM
-					for(uint32_t index2=0;index2<data_length;++index2)
-						regs[address+index2]=rx_packet_buffer[position+1+index2];
-				}
-			}
-		}
-		break;
 	case INSTR_FACTORY_RESET:
 		{
+			Servo_Disarm();
 			factory_reset_eeprom_regs();
 			// reply with a status packet with Model Number LSB MSB and Firmware version
 			tx_packet_buffer[PKT_INSTRUCTION]= INSTR_STATUS;
@@ -245,6 +224,7 @@ void instruction_handler()
 		break;
 	case INSTR_REBOOT:
 		{
+			Servo_Disarm();
 			// reply with a status packet with Model Number LSB MSB and Firmware version
 			tx_packet_buffer[PKT_INSTRUCTION]= INSTR_STATUS;
 			tx_packet_buffer[PKT_ERROR]= ERROR_NONE;
@@ -334,7 +314,7 @@ void packet_handler(char c)
 		rx_packet_buffer[PKT_LENGTH_H] = (uint8_t)c;
 		// reassemble length
 		rx_packet_payload_bytes = (uint32_t)MAKE_SHORT(rx_packet_buffer[PKT_LENGTH_L],rx_packet_buffer[PKT_LENGTH_H])-2;
-		if(rx_packet_payload_bytes<=1024) // validate length
+		if(rx_packet_payload_bytes>=1 && rx_packet_payload_bytes<=1024) // instruction through last parameter
 		{
 			packet_state = PAYLOAD;
 			rx_packet_position = PKT_INSTRUCTION;

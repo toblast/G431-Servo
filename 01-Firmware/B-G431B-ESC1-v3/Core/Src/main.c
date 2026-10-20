@@ -215,7 +215,12 @@ static void FDCAN_Config(void)
 }
 
 // CAN IT on message receive
-static void Servo_Disarm(void)
+bool Servo_Is_Disarmed(void)
+{
+  return !can_armed && !regs[REG_TORQUE_ENABLE] && !API_FOC_Is_Calibrating();
+}
+
+void Servo_Disarm(void)
 {
   uint32_t const primask = __get_PRIMASK();
   __disable_irq();
@@ -622,7 +627,9 @@ int main(void)
 			}
 
 			// Handle serial communication
-			while(HAL_Serial_Available(&serial))
+			// Bound work to the bytes present now so traffic cannot starve watchdogs.
+			uint32_t serial_remaining = (uint32_t)HAL_Serial_Available(&serial);
+			while(serial_remaining-- != 0 && HAL_Serial_Available(&serial))
 			{
 			  char c = HAL_Serial_GetChar(&serial);
 			  packet_handler(c);
