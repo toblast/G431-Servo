@@ -238,7 +238,7 @@ static void Servo_Check_Watchdogs(void)
   }
   if ((uint32_t)(now - API_FOC_Get_Timestamp_ms()) > FOC_TIMEOUT_MS)
   {
-    regs[REG_HARDWARE_ERROR_STATUS] |= 1U << HW_ERROR_BIT_FOC_TIMEOUT;
+    hardware_fault_set((uint8_t)(1U << HW_ERROR_BIT_FOC_TIMEOUT));
     Servo_Disarm();
   }
   __set_PRIMASK(primask);
@@ -283,7 +283,7 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
         (RxData[4] == 0xFF) && (RxData[5] == 0xFF) &&
         (RxData[6] == 0xFF) && (RxData[7] == 0xFF))
     {
-      if (!positionSensor_isReady() || regs[REG_HARDWARE_ERROR_STATUS] != 0)
+      if (!positionSensor_isReady() || hardware_fault_status() != 0)
       {
         continue;
       }
@@ -418,7 +418,7 @@ int main(void)
     /* USER CODE BEGIN 3 */
 
 	  	// hardware error clears torque enable register and disable FOC torque controller
-		if( regs[REG_HARDWARE_ERROR_STATUS] != 0 )
+		if( hardware_fault_status() != 0 )
 		{
 			Servo_Disarm();
 		}
@@ -436,7 +436,7 @@ int main(void)
 			// update sensor
 			positionSensor_update();
 
-			if(can_armed && regs[REG_TORQUE_ENABLE] && regs[REG_HARDWARE_ERROR_STATUS] == 0)
+			if(can_armed && regs[REG_TORQUE_ENABLE] && hardware_fault_status() == 0)
 			{
 				// transition from torque disable to enable
 				if(!torque_was_enable || applied_arm_generation != can_arm_generation)
@@ -558,7 +558,7 @@ int main(void)
 
 			// Handle local MMI
 			// Led STATUS
-			HAL_GPIO_WritePin(STATUS_GPIO_Port,STATUS_Pin,(regs[REG_LED]>0)||(regs[REG_HARDWARE_ERROR_STATUS]>0)?GPIO_PIN_SET:GPIO_PIN_RESET);
+			HAL_GPIO_WritePin(STATUS_GPIO_Port,STATUS_Pin,(regs[REG_LED]>0)||(hardware_fault_status()>0)?GPIO_PIN_SET:GPIO_PIN_RESET);
 
 			// DEBUG
 //			if(potentiometer_input_adc>200)

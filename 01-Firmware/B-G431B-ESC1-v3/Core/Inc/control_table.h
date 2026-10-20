@@ -235,6 +235,28 @@ void reset_ram_regs();
 
 extern uint8_t regs[REG_MAX];
 
+// The fault byte is shared by foreground services and fast control interrupts.
+static inline uint8_t hardware_fault_status(void)
+{
+    return *(volatile uint8_t *)&regs[REG_HARDWARE_ERROR_STATUS];
+}
+
+static inline void hardware_fault_set(uint8_t bits)
+{
+    uint32_t const primask = __get_PRIMASK();
+    __disable_irq();
+    *(volatile uint8_t *)&regs[REG_HARDWARE_ERROR_STATUS] = hardware_fault_status() | bits;
+    __set_PRIMASK(primask);
+}
+
+static inline void hardware_fault_clear(uint8_t bits)
+{
+    uint32_t const primask = __get_PRIMASK();
+    __disable_irq();
+    *(volatile uint8_t *)&regs[REG_HARDWARE_ERROR_STATUS] = hardware_fault_status() & (uint8_t)~bits;
+    __set_PRIMASK(primask);
+}
+
 
 #ifdef __cplusplus
 }

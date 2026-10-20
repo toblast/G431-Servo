@@ -115,7 +115,7 @@ void API_FOC_Torque_Enable()
 	pid_reset(&flux_pi);
 	pid_reset(&torque_pi);
 	// Publish the active state only after every target and PI state is reset.
-	if (regs[REG_TORQUE_ENABLE] && regs[REG_HARDWARE_ERROR_STATUS] == 0)
+	if (regs[REG_TORQUE_ENABLE] && hardware_fault_status() == 0)
 		foc_state = FOC_STATE_TORQUE_CONTROL;
 	__set_PRIMASK(primask);
 }
@@ -138,7 +138,7 @@ void API_FOC_Set_Torque_Flux_Currents_mA(float Iq_mA, float Id_mA)
 	uint32_t const primask = __get_PRIMASK();
 	__disable_irq();
 	if (foc_state == FOC_STATE_TORQUE_CONTROL &&
-		regs[REG_TORQUE_ENABLE] && regs[REG_HARDWARE_ERROR_STATUS] == 0)
+		regs[REG_TORQUE_ENABLE] && hardware_fault_status() == 0)
 	{
 		setpoint_torque_current_mA = Iq_mA;
 		setpoint_flux_current_mA = Id_mA;
@@ -199,20 +199,20 @@ void LL_FOC_Update_Temperature()
 	if(present_temperature_C>max_temperature_C)
 	{
 		// set overheating error
-		regs[REG_HARDWARE_ERROR_STATUS] |= 1UL << HW_ERROR_BIT_OVERHEATING;
+		hardware_fault_set((uint8_t)(1UL << HW_ERROR_BIT_OVERHEATING));
 		//HAL_Serial_Print(&serial,"h");
 	}
-	else if( ((regs[REG_HARDWARE_ERROR_STATUS]&(1UL << HW_ERROR_BIT_OVERHEATING))!=0) ) // hard-coded hysteresis 12°C
+	else if( ((hardware_fault_status()&(1UL << HW_ERROR_BIT_OVERHEATING))!=0) ) // hard-coded hysteresis 12°C
 	{
 		if(present_temperature_C<max_temperature_C-12.0f)
 			// clear overheating error
-			regs[REG_HARDWARE_ERROR_STATUS] &= ~(1UL << HW_ERROR_BIT_OVERHEATING);
+			hardware_fault_clear((uint8_t)(1UL << HW_ERROR_BIT_OVERHEATING));
 		// wait for cooling
 	}
 	else
 	{
 		// clear overheating error
-		regs[REG_HARDWARE_ERROR_STATUS] &= ~(1UL << HW_ERROR_BIT_OVERHEATING);
+		hardware_fault_clear((uint8_t)(1UL << HW_ERROR_BIT_OVERHEATING));
 	}
 
 }
@@ -240,13 +240,13 @@ void LL_FOC_Update_Voltage()
 	if((present_voltage_V>max_voltage_V)||(present_voltage_V<min_voltage_V))
 	{
 		// set voltage error
-		regs[REG_HARDWARE_ERROR_STATUS] |= 1UL << HW_ERROR_BIT_VOLTAGE;
+		hardware_fault_set((uint8_t)(1UL << HW_ERROR_BIT_VOLTAGE));
 		//HAL_Serial_Print(&serial,"v");
 	}
 	else
 	{
 		// clear voltage error
-		regs[REG_HARDWARE_ERROR_STATUS] &= ~(1UL << HW_ERROR_BIT_VOLTAGE);
+		hardware_fault_clear((uint8_t)(1UL << HW_ERROR_BIT_VOLTAGE));
 	}
 }
 

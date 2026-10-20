@@ -255,8 +255,55 @@ static int selected(const char *group, const char *name)
     return strcmp(group, "all") == 0 || strcmp(group, name) == 0;
 }
 
+static void test_stale_fault_requires_disarm(void)
+{
+    fixture(1024, 1000);
+    CHECK(positionSensor_init(AS5600_I2C) == 1);
+    regs[REG_TORQUE_ENABLE] = 1;
+    positionSensor_getRadiansEstimation(2201);
+    CHECK(hardware_fault_status() & (1U << HW_ERROR_BIT_POSITION_SENSOR_NOT_RESPONDING));
+    htim6.counter = 2250;
+    positionSensor_update();
+    positionSensor_getRadiansEstimation(2251);
+    CHECK(hardware_fault_status() & (1U << HW_ERROR_BIT_POSITION_SENSOR_NOT_RESPONDING));
+    regs[REG_TORQUE_ENABLE] = 0;
+    positionSensor_getRadiansEstimation(2252);
+    CHECK(!(hardware_fault_status() & (1U << HW_ERROR_BIT_POSITION_SENSOR_NOT_RESPONDING)));
+}
+
+static void interrupt_sets_sensor_fault(void)
+{
+    test_irq_restored = NULL;
+    hardware_fault_set(1U << HW_ERROR_BIT_POSITION_SENSOR_STATUS_ERROR);
+}
+
+static void interrupt_sets_overload(void)
+{
+    test_irq_restored = NULL;
+    hardware_fault_set(1U << HW_ERROR_BIT_OVERLOAD);
+}
+
+static void test_fault_updates_preserve_other_sources(void)
+{
+    fixture(1024, 1000);
+    test_irq_restored = interrupt_sets_sensor_fault;
+    hardware_fault_set(1U << HW_ERROR_BIT_VOLTAGE);
+    CHECK(hardware_fault_status() == ((1U << HW_ERROR_BIT_VOLTAGE) |
+                                     (1U << HW_ERROR_BIT_POSITION_SENSOR_STATUS_ERROR)));
+    test_irq_restored = interrupt_sets_overload;
+    hardware_fault_clear(1U << HW_ERROR_BIT_VOLTAGE);
+    CHECK(hardware_fault_status() == ((1U << HW_ERROR_BIT_OVERLOAD) |
+                                     (1U << HW_ERROR_BIT_POSITION_SENSOR_STATUS_ERROR)));
+    test_primask = 1;
+    hardware_fault_set(1U << HW_ERROR_BIT_OVERHEATING);
+    CHECK(test_primask == 1);
+    test_primask = 0;
+}
+
 int main(int argc, char **argv)
 {
+    test_stale_fault_requires_disarm();
+    test_fault_updates_preserve_other_sources();
     const char *group = argc > 1 ? argv[1] : "all";
     if (selected(group, "read")) {
         test_driver_failure_keeps_caller_output();

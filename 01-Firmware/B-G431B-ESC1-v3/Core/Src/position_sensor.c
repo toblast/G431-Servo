@@ -69,7 +69,7 @@ int positionSensor_init(e_sensor_type sensor_type)
         if (AS5600_Init(sensor->as5600Handle) != HAL_OK ||
             AS5600_GetAngle(sensor->as5600Handle, &angle_data) != HAL_OK)
         {
-            regs[REG_HARDWARE_ERROR_STATUS] |= 1UL << HW_ERROR_BIT_POSITION_SENSOR_STATUS_ERROR;
+            hardware_fault_set((uint8_t)(1UL << HW_ERROR_BIT_POSITION_SENSOR_STATUS_ERROR));
             return 0;
         }
         sensor->last_angle_data = angle_data;
@@ -88,7 +88,7 @@ int positionSensor_init(e_sensor_type sensor_type)
         sensor->initialized = 1;
         return 1;
     default:
-        regs[REG_HARDWARE_ERROR_STATUS] |= 1UL << HW_ERROR_BIT_POSITION_SENSOR_STATUS_ERROR;
+        hardware_fault_set((uint8_t)(1UL << HW_ERROR_BIT_POSITION_SENSOR_STATUS_ERROR));
         return 0;
     }
 }
@@ -107,15 +107,17 @@ float positionSensor_getRadiansEstimation(uint16_t time_us)
 		if(delta_t_us>1200) //1.2ms
 		{
 			// set encoder error
-			regs[REG_HARDWARE_ERROR_STATUS] |= 1UL << HW_ERROR_BIT_POSITION_SENSOR_NOT_RESPONDING;
+			hardware_fault_set((uint8_t)(1UL << HW_ERROR_BIT_POSITION_SENSOR_NOT_RESPONDING));
 			// return error
 			return 0.0f; // force ZERO
 		}
 		// normal
 		else
 		{
-			// clear encoder error
-			regs[REG_HARDWARE_ERROR_STATUS] &= ~(1UL << HW_ERROR_BIT_POSITION_SENSOR_NOT_RESPONDING);
+			// A fresh sample must not silently resume an active servo after timeout.
+			// Main must observe the fault and disarm before this live bit can clear.
+			if (!regs[REG_TORQUE_ENABLE])
+				hardware_fault_clear((uint8_t)(1UL << HW_ERROR_BIT_POSITION_SENSOR_NOT_RESPONDING));
 			// compute estimation
 			return sensor->angle_rad + sensor->velocity_rad*(float)(delta_t_us+200)/1000000.0f; // Slow filter latency is 0.2ms
 		}
@@ -148,7 +150,7 @@ void positionSensor_update(void){
 
 		if(status!=HAL_OK)
 		{	// set encoder error
-			regs[REG_HARDWARE_ERROR_STATUS] |= 1UL << HW_ERROR_BIT_POSITION_SENSOR_STATUS_ERROR;
+			hardware_fault_set((uint8_t)(1UL << HW_ERROR_BIT_POSITION_SENSOR_STATUS_ERROR));
 			regs[REG_PROTOCOL_CRC_FAIL]++;
 			return; // Preserve the complete last valid sample.
 		}

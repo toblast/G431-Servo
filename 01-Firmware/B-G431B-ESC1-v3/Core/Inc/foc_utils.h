@@ -47,7 +47,7 @@ inline void LL_FOC_set_phase_voltage( float Vd, float Vq, float cosine_theta, fl
 	float const duty_cycle_PWMb = fconstrain((Vb-Vneutral)/present_voltage_V+0.5f,MIN_PWM_DUTY_CYCLE,MAX_PWM_DUTY_CYCLE);
 	float const duty_cycle_PWMc = fconstrain((Vc-Vneutral)/present_voltage_V+0.5f,MIN_PWM_DUTY_CYCLE,MAX_PWM_DUTY_CYCLE);
 	// update TIMER CCR registers and apply BRAKE in case of hardware failure or torque disable
-	if( regs[REG_HARDWARE_ERROR_STATUS] != 0 ) // fail-safe
+	if( hardware_fault_status() != 0 ) // fail-safe
 	{
 		// compute a valid BRAKE value
 		uint16_t const CCRx = (uint16_t)(0.5f*(float)(__HAL_TIM_GET_AUTORELOAD(&htim1)+1))-1;
