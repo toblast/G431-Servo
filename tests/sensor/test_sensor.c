@@ -12,6 +12,8 @@ TIM_HandleTypeDef htim4;
 TIM_HandleTypeDef htim6;
 uint8_t regs[REG_MAX];
 uint32_t test_primask;
+void (*test_irq_restored)(void);
+static unsigned observed_samples;
 
 static uint8_t bus[256];
 static int failed_read_reg = -1;
@@ -80,6 +82,8 @@ static void fixture(uint16_t angle, uint16_t start_us)
     failed_write = partial_read = 0;
     acquisition_us = 0;
     test_primask = 0;
+    test_irq_restored = NULL;
+    observed_samples = 0;
     bus[0x0b] = 0x20; /* magnet detected, field strength in range */
     set_angle(angle);
     htim6.counter = start_us;
@@ -204,7 +208,29 @@ static void test_velocity_includes_acquisition_duration(void)
 
 
 
+static void observe_published_sample(void)
+{
+    ++observed_samples;
+    CHECK(test_primask == 0);
+    CHECK(close_to(positionSensor_getDegreeMultiturn(), 90.087890625f, 0.01f));
+    CHECK(close_to(positionSensor_getVelocityDegree(), 351.5625f, 0.5f));
+    CHECK(sensor->lastUpdate == 1250);
+    CHECK(sensor->angle_prev_rad == sensor->angle_rad);
+}
 
+static void test_publication_restores_interrupt_mask(void)
+{
+    fixture(1024, 1000);
+    CHECK(positionSensor_init(AS5600_I2C) == 1);
+    htim6.counter = 1250;
+    set_angle(1025);
+    test_irq_restored = observe_published_sample;
+    positionSensor_update();
+    test_irq_restored = NULL;
+    CHECK(observed_samples == 1);
+    CHECK(test_primask == 0);
+    CHECK(close_to(positionSensor_getDegreeMultiturn(), 90.087890625f, 0.01f));
+}
 
 static int selected(const char *group, const char *name)
 {
@@ -226,6 +252,9 @@ int main(int argc, char **argv)
         test_equal_timestamps_do_not_make_stale_or_infinite_velocity();
         test_wraparound_uses_modular_elapsed_time();
         test_velocity_includes_acquisition_duration();
+    }
+    if (selected(group, "snapshot")) {
+        test_publication_restores_interrupt_mask();
     }
     if (failures) fprintf(stderr, "%u sensor regression assertion(s) failed\n", failures);
     else puts("Sensor regression checks passed");

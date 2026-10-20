@@ -155,31 +155,39 @@ void positionSensor_update(void){
         uint16_t const now_us = __HAL_TIM_GET_COUNTER(&htim6);
         uint16_t const delta_time_us = (uint16_t)(now_us - sensor->lastUpdate);
         if (delta_time_us == 0) return;
+        positionSensor_t next = *sensor;
 
 		// tracking the number of rotations
 		// in order to expand angle range form [0,2PI]
 		// to basically infinity
-		d_angle = (float)(angle_data - sensor->last_angle_data);
+		d_angle = (float)(angle_data - next.last_angle_data);
 		// if overflow happened track it as full rotation
-		if(abs(d_angle) > (0.8*cpr) ) sensor->full_rotation_offset += d_angle > 0 ? -M_2PI : M_2PI;
+		if(abs(d_angle) > (0.8*cpr) ) next.full_rotation_offset += d_angle > 0 ? -M_2PI : M_2PI;
 		// save the current angle value for the next steps
 		// in order to know if overflow happened
-		sensor->last_angle_data = angle_data;
+		next.last_angle_data = angle_data;
 
 		// return the full angle
 		// (number of full rotations)*2PI + current sensor angle
-		sensor->angle_rad = sensor->full_rotation_offset + ( (float)angle_data / (float)cpr) * M_2PI;
-		sensor->angle_deg = RADIANS_TO_DEGREES(sensor->angle_rad);
+		next.angle_rad = next.full_rotation_offset + ( (float)angle_data / (float)cpr) * M_2PI;
+		next.angle_deg = RADIANS_TO_DEGREES(next.angle_rad);
 
 		// velocity calculation
-		sensor->velocity_rad = ((sensor->angle_rad - sensor->angle_prev_rad)/delta_time_us* 1000000.0f);
-		sensor->velocity_deg = ((sensor->angle_deg - sensor->angle_prev_deg)/delta_time_us* 1000000.0f);
+		next.velocity_rad = ((next.angle_rad - next.angle_prev_rad)/delta_time_us* 1000000.0f);
+		next.velocity_deg = ((next.angle_deg - next.angle_prev_deg)/delta_time_us* 1000000.0f);
 
 		// last angle
-		sensor->angle_prev_rad = sensor->angle_rad;
-		sensor->angle_prev_deg = sensor->angle_deg;
+		next.angle_prev_rad = next.angle_rad;
+		next.angle_prev_deg = next.angle_deg;
 
-		sensor->lastUpdate = now_us;
+		next.lastUpdate = now_us;
+
+        // No blocking work runs with IRQs masked. FOC sees one complete sample.
+        uint32_t const primask = __get_PRIMASK();
+        __disable_irq();
+        *sensor = next;
+        __DMB();
+        __set_PRIMASK(primask);
 		break;
 	}
 	default:

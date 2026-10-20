@@ -11,10 +11,14 @@ typedef struct { uint16_t counter; } TIM_HandleTypeDef;
 #define __HAL_TIM_GET_COUNTER(timer) ((timer)->counter)
 
 extern uint32_t test_primask;
+extern void (*test_irq_restored)(void);
 static inline uint32_t __get_PRIMASK(void) { return test_primask; }
 static inline void __disable_irq(void) { test_primask = 1U; }
 static inline void __enable_irq(void) { test_primask = 0U; }
-static inline void __set_PRIMASK(uint32_t value) { test_primask = value; }
+static inline void __set_PRIMASK(uint32_t value) {
+    test_primask = value;
+    if (value == 0 && test_irq_restored) test_irq_restored();
+}
 static inline void __DMB(void) { }
 
 HAL_StatusTypeDef HAL_I2C_Mem_Read(I2C_HandleTypeDef *handle, uint16_t address,
