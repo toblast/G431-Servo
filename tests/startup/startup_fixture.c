@@ -8,10 +8,12 @@
     exit(1); \
 } } while (0)
 
-typedef int TIM_HandleTypeDef;
+typedef struct { uint32_t CCER, BDTR; } TIM_TypeDef;
+typedef struct { TIM_TypeDef *Instance; } TIM_HandleTypeDef;
 typedef int ADC_HandleTypeDef;
 typedef int OPAMP_HandleTypeDef;
-TIM_HandleTypeDef htim1, htim6;
+static TIM_TypeDef timer1, timer6;
+TIM_HandleTypeDef htim1 = { &timer1 }, htim6 = { &timer6 };
 ADC_HandleTypeDef hadc1, hadc2;
 OPAMP_HandleTypeDef hopamp1, hopamp2, hopamp3;
 int huart2, serial;
@@ -25,11 +27,19 @@ static unsigned adc_callbacks;
 #define TIM_CHANNEL_1 1
 #define TIM_CHANNEL_2 2
 #define TIM_CHANNEL_3 3
+#define HAL_OK 0
+#define TIM_CCER_CC1E 1U
+#define TIM_CCER_CC1NE 4U
+#define TIM_CCER_CC2E 16U
+#define TIM_CCER_CC2NE 64U
+#define TIM_CCER_CC3E 256U
+#define TIM_CCER_CC3NE 1024U
+#define SET_BIT(reg, bits) ((reg) |= (bits))
 #define __HAL_TIM_SET_COMPARE(timer, channel, value) ((void)0)
 
-static void HAL_TIM_Base_Start(TIM_HandleTypeDef *timer) { (void)timer; }
-static void HAL_TIM_PWM_Start(TIM_HandleTypeDef *timer, int channel) { (void)timer; (void)channel; }
-static void HAL_TIMEx_PWMN_Start(TIM_HandleTypeDef *timer, int channel) { (void)timer; (void)channel; }
+static int HAL_TIM_Base_Start(TIM_HandleTypeDef *timer) { assert(timer->Instance->BDTR == 0); return HAL_OK; }
+static void LL_FOC_coast(void) { htim1.Instance->BDTR = 0; }
+static void Error_Handler(void) { exit(1); }
 static void HAL_OPAMP_Start(OPAMP_HandleTypeDef *opamp) { (void)opamp; }
 static void API_CORDIC_Processor_Init(void) { cordic_ready = true; }
 static void API_FOC_Torque_Disable(void) { foc_ready = true; }

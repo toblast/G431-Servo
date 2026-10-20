@@ -9,6 +9,7 @@
 /// DOC SVM https://www.embedded.com/painless-mcu-implementation-of-space-vector-modulation-for-electric-motor-systems/
 
 #include "foc.h"
+#include "main.h"
 #include "foc_utils.h"
 #include "cordic.h"
 #include "serial.h"
@@ -54,7 +55,7 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 }
 
 // FOC state variable
-#define FOC_STATE_IDLE 0 					// brake
+#define FOC_STATE_IDLE 0 					// coast
 #define FOC_STATE_TORQUE_CONTROL 1 			// normal operation
 #define FOC_STATE_FLUX_CONTROL 10 			// calibration
 static volatile uint32_t foc_state = FOC_STATE_IDLE;
@@ -128,8 +129,7 @@ void API_FOC_Torque_Disable()
 	setpoint_torque_current_mA = 0.0f;
 	setpoint_flux_current_mA = 0.0f;
 
-	// enforce brake
-	LL_FOC_brake();
+	LL_FOC_coast();
 	__set_PRIMASK(primask);
 }
 
@@ -154,16 +154,15 @@ void API_FOC_Init()
 	// Configure the math accelerator before any ADC callback can use it.
 	API_CORDIC_Processor_Init();
 
-	// Motor PWM init and BRAKE
+	// Configure all six channels with MOE kept clear: idle levels are low.
+	LL_FOC_coast();
 	__HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_1,0);
 	__HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_2,0);
 	__HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_3,0);
-	HAL_TIM_PWM_Start(&htim1,TIM_CHANNEL_1);
-	HAL_TIMEx_PWMN_Start(&htim1,TIM_CHANNEL_1) ;
-	HAL_TIM_PWM_Start(&htim1,TIM_CHANNEL_2);
-	HAL_TIMEx_PWMN_Start(&htim1,TIM_CHANNEL_2) ;
-	HAL_TIM_PWM_Start(&htim1,TIM_CHANNEL_3);
-	HAL_TIMEx_PWMN_Start(&htim1,TIM_CHANNEL_3) ;
+	SET_BIT(htim1.Instance->CCER, TIM_CCER_CC1E | TIM_CCER_CC1NE |
+		TIM_CCER_CC2E | TIM_CCER_CC2NE | TIM_CCER_CC3E | TIM_CCER_CC3NE);
+	// Starting the base counter leaves MOE clear and keeps ADC TRGO available.
+	if (HAL_TIM_Base_Start(&htim1) != HAL_OK) Error_Handler();
 	// OPAMP and ADC init
 	HAL_OPAMP_Start(&hopamp1);
 	HAL_OPAMP_Start(&hopamp2);
@@ -427,8 +426,8 @@ void API_FOC_Torque_Update()
 			present_Ids_mA =  present_Ialpha * cosine_theta + present_Ibeta * sine_theta;
 			present_Iqs_mA = -present_Ialpha * sine_theta   + present_Ibeta * cosine_theta;
 
-			// do brake
-			LL_FOC_brake();
+			// Disabled motor: keep all gate inputs at their idle-low levels.
+			LL_FOC_coast();
 		}
 		break;
 	case FOC_STATE_TORQUE_CONTROL:

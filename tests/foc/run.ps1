@@ -30,3 +30,8 @@ $exePath = Join-Path $buildDirectory 'transitions.exe'
 if ($LASTEXITCODE -ne 0) { throw 'FOC transition compilation failed.' }
 & $exePath
 if ($LASTEXITCODE -ne 0) { throw 'FOC transition regression failed.' }
+$outputsExe = Join-Path $buildDirectory 'outputs.exe'
+& $compilerCommand.Source -std=gnu99 -Wall -Wextra -I (Join-Path $PSScriptRoot 'mocks') -I (Join-Path $firmwareRoot 'Core/Inc') (Join-Path $PSScriptRoot 'outputs.c') (Join-Path $firmwareRoot 'Core/Src/math_tool.c') -o $outputsExe -lm
+if ($LASTEXITCODE -ne 0) { throw 'FOC output compilation failed.' }
+& $outputsExe
+if ($LASTEXITCODE -ne 0) { throw 'FOC output regression failed.' }

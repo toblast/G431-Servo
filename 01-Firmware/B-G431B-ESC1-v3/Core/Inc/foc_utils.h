@@ -10,6 +10,7 @@
 
 #include "math_tool.h"
 #include "control_table.h"
+#include <stdbool.h>
 
 // hard-coded settings
 #define MAX_PWM_DUTY_CYCLE 			0.94f 	// %
@@ -26,13 +27,25 @@ extern TIM_HandleTypeDef htim1;
 extern "C" {
 #endif
 
-// low level function
-// this function checks REG_HARDWARE_ERROR_STATUS register and enforce BRAKE if register is not zero
-// this function checks REG_CONTROL_MODE register and enforce BRAKE if control mode is zero
-void LL_FOC_set_phase_voltage( float Vd, float Vq, float cosine_theta, float sine_theta, float present_voltage_V ) __attribute__((always_inline));
+// Private to foc.c: require a natural PWM update before enabling new duties.
+static bool phase_voltage_pending = false;
 
-inline void LL_FOC_set_phase_voltage( float Vd, float Vq, float cosine_theta, float sine_theta, float present_voltage_V )
+static inline __attribute__((always_inline)) void LL_FOC_coast(void)
 {
+    phase_voltage_pending = false;
+    // Keep the counter and channel selections running for ADC update triggers.
+    __HAL_TIM_MOE_DISABLE_UNCONDITIONALLY(&htim1);
+}
+
+static inline __attribute__((always_inline)) void LL_FOC_set_phase_voltage( float Vd, float Vq, float cosine_theta, float sine_theta, float present_voltage_V )
+{
+	if (hardware_fault_status() != 0 || !isfinite(present_voltage_V) ||
+		present_voltage_V <= 0.0f || !isfinite(Vd) || !isfinite(Vq) ||
+		!isfinite(cosine_theta) || !isfinite(sine_theta))
+	{
+		LL_FOC_coast();
+		return;
+	}
 	// Inverse Park Transformation
 	float const Valpha = Vd * cosine_theta - Vq * sine_theta;
 	float const Vbeta  = Vq * cosine_theta + Vd * sine_theta;
@@ -46,14 +59,15 @@ inline void LL_FOC_set_phase_voltage( float Vd, float Vq, float cosine_theta, fl
 	float const duty_cycle_PWMa = fconstrain((Va-Vneutral)/present_voltage_V+0.5f,MIN_PWM_DUTY_CYCLE,MAX_PWM_DUTY_CYCLE);
 	float const duty_cycle_PWMb = fconstrain((Vb-Vneutral)/present_voltage_V+0.5f,MIN_PWM_DUTY_CYCLE,MAX_PWM_DUTY_CYCLE);
 	float const duty_cycle_PWMc = fconstrain((Vc-Vneutral)/present_voltage_V+0.5f,MIN_PWM_DUTY_CYCLE,MAX_PWM_DUTY_CYCLE);
-	// update TIMER CCR registers and apply BRAKE in case of hardware failure or torque disable
+	// Reject invalid duties before conversion to timer counts.
+	if (!isfinite(duty_cycle_PWMa) || !isfinite(duty_cycle_PWMb) || !isfinite(duty_cycle_PWMc))
+	{
+		LL_FOC_coast();
+		return;
+	}
 	if( hardware_fault_status() != 0 ) // fail-safe
 	{
-		// compute a valid BRAKE value
-		uint16_t const CCRx = (uint16_t)(0.5f*(float)(__HAL_TIM_GET_AUTORELOAD(&htim1)+1))-1;
-		__HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_1,CCRx);
-		__HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_2,CCRx);
-		__HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_3,CCRx);
+		LL_FOC_coast();
 	}
 	else
 	{
@@ -70,12 +84,17 @@ inline void LL_FOC_set_phase_voltage( float Vd, float Vq, float cosine_theta, fl
 		__HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_1,CCRa);
 		__HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_2,CCRb);
 		__HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_3,CCRc);
+		// CCR preload is active. One complete PWM cycle must latch safe values
+		// before MOE is restored; ADC FOC calls occur once per PWM cycle.
+		if (phase_voltage_pending)
+			__HAL_TIM_MOE_ENABLE(&htim1);
+		else
+			phase_voltage_pending = true;
 	}
 }
 
-void LL_FOC_brake() __attribute__((always_inline));
-
-inline void LL_FOC_brake()
+// Retained only for the existing armed overspeed response.
+static inline __attribute__((always_inline)) void LL_FOC_brake(void)
 {
 	// compute a valid BRAKE value
 	uint16_t const CCRx = (uint16_t)(0.5f*(float)(__HAL_TIM_GET_AUTORELOAD(&htim1)+1))-1;

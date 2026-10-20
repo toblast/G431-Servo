@@ -17,7 +17,7 @@ void pid_reset(pid_context_t *ctx)
     CHECK(test_primask == 1);
     ctx->err_last_one = ctx->err_integral = ctx->derivative_filtered = 0;
 }
-static void LL_FOC_brake(void) { ++brakes; }
+static void LL_FOC_coast(void) { ++brakes; }
 void HAL_Delay(uint32_t time) { (void)time; ++delays; }
 /* GLOBALS */
 /* FUNCTIONS */
