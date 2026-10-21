@@ -1,5 +1,10 @@
 # Kawasaki Ninja 300 Cruise-Control System Architecture
 
+For an illustrated overview of the system and the current firmware modules,
+start with the [visual architecture guide](architecture.md)
+([offline HTML edition](architecture.html)). This document records the broader
+project decisions and open questions.
+
 Firmware status for branch `simplified`: the selected B-G431B-ESC1 + AS5600
 implementation and its bench-only validation are described in
 [servo-drive.md](servo-drive.md). The classified audit, completed patches and

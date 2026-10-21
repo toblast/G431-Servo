@@ -1,5 +1,8 @@
 # B-G431B-ESC1 + AS5600 drive contract
 
+For diagrams of the control loops, code modules and runtime behavior, see the
+[visual architecture guide](architecture.md) or its [HTML edition](architecture.html).
+
 This describes `01-Firmware/B-G431B-ESC1-v3` on `simplified`. All angles and
 velocities refer to the **motor shaft**. No gear ratio or throttle travel is
 encoded in firmware. The ESP32 converts its desired actuator position into the

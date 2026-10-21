@@ -18,6 +18,10 @@ over CAN. No vehicle speed, brake, clutch or cruise-control logic runs here.
 - Provisional bench current defaults: 500 mA command limit, configurable up to
   1000 mA; measured phase-current trip at 1500 mA.
 
+Start with the [visual architecture guide](docs/architecture.md)
+([illustrated HTML edition](docs/architecture.html)) for diagrams of the system,
+control loops, code modules, execution contexts and state transitions.
+
 See the [drive contract and bench checklist](docs/servo-drive.md),
 [audit findings and patch plan](docs/simplified-audit.md),
 [system architecture](docs/system-architecture.md) and
