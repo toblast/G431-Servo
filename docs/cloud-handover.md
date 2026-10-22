@@ -3,6 +3,10 @@
 Prepared 2026-10-21 for continuing the local G431-Servo development chat.
 This is a project handover, not an export of the complete conversation.
 
+The preparation history below is a snapshot. The 2026-10-22 follow-up fixes
+and eleven-suite validation supersede its implementation/test summary; consult
+the current [audit register](simplified-audit.md#2026-10-22-follow-up).
+
 ## Start a new cloud chat
 
 Select repository `toblast/G431-Servo`, branch `simplified`, and provide this

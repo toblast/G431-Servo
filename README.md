@@ -43,6 +43,10 @@ pole-pair default is inherited and is not a verified specification for the GB521
 The legacy GUI's torque controls, runtime-register writes and abbreviated CAN
 formats are unsupported. Serial access is for disarmed configuration and
 diagnostics; manual calibration is requested by the board button.
+Calibration requests are accepted only while already disarmed. After upgrading
+from the former AS5600 driver, repeat motor alignment on the bench because its
+incorrect configuration write changed the encoder zero. The current driver
+preserves that zero and verifies the configured acquisition mode.
 
 Based on the community
 [Smart Brushless Servo project](https://hackaday.io/project/177578-b-g431b-esc-brushless-servo-controller).

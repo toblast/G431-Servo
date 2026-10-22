@@ -612,9 +612,12 @@ in [simplified-audit.md](simplified-audit.md).
 - The encoder default is now 12 bits. Existing incompatible EEPROM settings
   prevent ARM; actual motor pole pairs, alignment and travel must be configured.
 - The four-byte CAN reply still has no state/fault flags; expansion is deferred.
+- Follow-up fixes verify the AS5600 configuration without changing its zero,
+  pair ADC samples by sampling half-cycle, check FOC liveness during calibration,
+  reject armed calibration requests, bound serial queues and saturate telemetry.
 
 Software regression and ARM builds have passed. No motor flashing or bench
-validation is claimed. Persistence integrity, extreme telemetry conversion,
+validation is claimed. Persistence integrity,
 independent watchdog protection and final control-policy tuning remain scoped
 follow-ups.
 

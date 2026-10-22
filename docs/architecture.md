@@ -126,6 +126,7 @@ These periods describe configuration/scheduling targets, not measured execution
 times. I2C errors and flash operations can delay the foreground. Manual
 calibration temporarily runs a serviced trajectory: its waits keep encoder and
 analog monitoring alive, CAN interrupts still run, and CAN DISARM can cancel it.
+The shared FOC watchdog also runs inside these waits.
 The ordinary main-loop schedule resumes after calibration returns.
 
 ## 5. States, faults and output ownership
@@ -149,7 +150,7 @@ the timer/ADC acquisition keeps running. Re-enabling waits for valid PWM
 preloads to latch. The existing armed overspeed response can brake; it is a
 different path from disabled coast, and detected faults take precedence.
 
-A fresh button press requests manual calibration after disarming. Calibration
+A fresh button press requests manual calibration only while already disarmed. Calibration
 deliberately energizes the motor even though the normal servo is disarmed.
 A held button at startup cannot trigger it until released and pressed again.
 Completion or cancellation returns to disabled outputs; a remaining fault
@@ -158,10 +159,10 @@ still inhibits ARM. Fatal CPU/initialization paths clear MOE directly and halt.
 | Detection | Where it is checked | Result |
 | --- | --- | --- |
 | CAN elapsed time >1000 ms | `Servo_Check_Watchdogs`, foreground | Disarm; no separate CAN fault bit |
-| FOC timestamp age >10 ms | Same foreground helper | Latch FOC timeout and disarm |
+| FOC timestamp age >10 ms | `API_FOC_Check_Watchdog`, normal foreground and calibration waits | Latch FOC timeout and disable outputs; cancel calibration or disarm |
 | Encoder sample age >1200 µs | Fast angle estimator | Set stale flag; output paths inhibit motion; foreground disarms |
 | I2C or magnet-status failure | Encoder acquisition | Preserve complete last valid sample and latch sensor fault |
-| Measured phase current >1500 mA, ADC error or CORDIC failure | Fast acquisition/control path | Fault and immediate FOC disable |
+| Measured phase current >1500 mA, incoherent ADC pair, ADC error or CORDIC failure | Fast acquisition/control path | Fault and immediate FOC disable |
 | Voltage, temperature or configuration violation | Foreground service / ARM validation | Fault inhibits outputs and foreground disarms |
 
 Clearing a fault condition does not automatically arm the motor. Some faults

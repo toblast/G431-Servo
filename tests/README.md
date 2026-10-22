@@ -12,11 +12,13 @@ same `-Compiler` argument. Generated sources and executables are ignored.
 | Suite | Production behavior exercised |
 | --- | --- |
 | startup | Dependencies before ADC callbacks; seven FOC peripheral start failures, failed timebase and held-button interlock |
-| sensor | Failed/partial I2C reads, initialization, magnet status, sample timing, wraparound, atomic publication and fault flags |
+| sensor | Configuration address/readback and preserved zero, register byte order, failed/partial I2C reads, initialization, magnet status, sample timing, wraparound, atomic publication and fault flags |
 | can | Every DLC encoding, frame type/ID, FIFO bounds, ARM/DISARM, 8-byte decoding, watchdog rollover and stale current publication |
-| foc | State transitions, measured overcurrent, ADC errors, coast, preload-before-enable and invalid PWM inputs |
-| calibration | Successful alignment, both directions, no motion, pole mismatch, serviced acquisition, cancellation, sensor and persistence failures |
+| foc | State transitions, measured overcurrent, ADC pairing/missing streams, ADC errors, coast, preload-before-enable and invalid PWM inputs |
+| calibration | Successful alignment, both directions, no motion, pole mismatch, serviced acquisition, FOC loss before/during alignment, cancellation, sensor and persistence failures |
 | protocol | Disarmed configuration, protected runtime registers, malformed packets, maintenance interlock and write failures |
+| serial | Full TX queue, FIFO wrap and DMA buffer ownership, DMA start/runtime errors, RX reload boundary and bounded formatting |
+| telemetry | Saved production publication block, signed/byte saturation, NaN/infinity, negative values and zero-uptime counters |
 | configuration | Conservative defaults, invalid settings, maintenance interlock and persistence error propagation |
 | fatal | Six production fatal handlers disable MOE before halting |
 | cordic | Bounded result polling, invalid angles, Q31 boundary and calculation failure in every FOC state |

@@ -20,7 +20,7 @@ Paths below are relative to the selected firmware directory.
 | PWM, coast and brake | Inline helpers in `Core/Inc/foc_utils.h`; TIM1 configuration in `Core/Src/main.c`; pin setup in `Core/Src/stm32g4xx_hal_msp.c` |
 | AS5600 acquisition | Foreground `positionSensor_update` → magnet check and angle read in `Core/Src/as5600.c`; prediction and atomic sample publication in `Core/Src/position_sensor.c` |
 | CAN RX and state | `HAL_FDCAN_RxFifo0Callback`, `Servo_Disarm`, `Servo_Get_Command` and `Servo_Publish_Currents` in `Core/Src/main.c` |
-| Watchdogs | `Servo_Check_Watchdogs` in `Core/Src/main.c`; sample-age check in `positionSensor_getRadiansEstimation` |
+| Watchdogs | `Servo_Check_Watchdogs` in `Core/Src/main.c`, shared `API_FOC_Check_Watchdog` in `foc.c` (also used during calibration), and sample-age check in `positionSensor_getRadiansEstimation` |
 | Position/velocity loop | Foreground loop in `main.c` → `pid_process_antiwindup_clamp_with_ff` in `pic.c` → guarded current publication → FOC |
 | Configuration/fault flags | `Core/Src/control_table.c`, `Core/Inc/control_table.h`; disarmed serial access in `Core/Src/protocol.c` |
 | Calibration | `API_FOC_Calibrate` and serviced waits in `foc.c`; button edge in `main.c` |
@@ -33,6 +33,18 @@ selected counter half-cycle. The foreground targets 250 us for encoder/servo
 work and 10 ms for voltage, temperature, button and serial service. These are
 configuration targets, not measured guarantees; I2C failures and flash writes
 can delay foreground work.
+
+FOC requires fresh ADC1 and ADC2 data in the same sampling half-cycle. A
+duplicate contribution or an incomplete active pair latches an internal fault
+and coasts. Incomplete IDLE startup pairs are discarded; missing complete pairs
+also stop refreshing the FOC watchdog.
+
+Encoder initialization writes and reads back CONF at `0x07`, preserving ZPOS.
+It selects nominal mode and the 2x slow filter, with the sensor's power-saving
+watchdog disabled so inactivity cannot select a slower acquisition mode.
+Repeat motor alignment on the bench after upgrading from the earlier driver:
+its erroneous CONF write overwrote ZPOS, so saved electrical alignment may
+refer to a different encoder zero. No automatic calibration is performed.
 
 ## State transitions
 
@@ -60,6 +72,9 @@ Calibration does not require periodic CAN traffic. It ends in coast, never in
 the armed servo state. Results printed over serial: 0 success, 1 no motion,
 2 pole-pair mismatch, 3 rejected/cancelled/fault, 4 storage failure. Failed
 calibration restores the previous RAM alignment settings.
+An armed button press is ignored and must be released before a later disarmed
+press can request calibration. FOC age is checked throughout calibration;
+loss of callbacks for more than 10 ms cancels it, coasts, and latches bit 4.
 
 ## CAN protocol
 
@@ -102,6 +117,9 @@ measured Iq in mA, little-endian. Accepted DISARM also requests a reply. Replies
 are asynchronous snapshots, can be dropped when TX is full, and contain no
 state/fault flags or explicit acceptance code. Do not use them as proof that
 the motor is armed. Fault telemetry expansion remains deferred.
+Numeric telemetry is saturated to its existing signed-16-bit or unsigned-byte
+range before conversion. NaN maps to zero; infinities map to the corresponding
+numeric limit. Saturation does not prove sample validity or replace fault flags.
 
 ## Actual outer control law
 
@@ -143,6 +161,10 @@ gains remain per-sample values with existing scaling and anti-windup.
 | Temperature | Default/max 70 °C; clear overheating below limit −12 °C |
 
 Limits are provisional bench limits, not a measured GB5215/throttle envelope.
+Position limits constrain command targets and initial ARM position; they are
+not a continuous measured-travel interlock. Nonzero feed-forward with zero
+position gains can move beyond them. A travel-violation response and recovery
+policy still need to be selected before relying on firmware travel protection.
 The 1 A command cap and 1.5 A measured trip are different protections. Software
 phase-current protection relies on working acquisition/CPU execution and does
 not replace an independently validated hardware current cutoff. TIM1 break
@@ -154,6 +176,11 @@ are protected; SYNC_WRITE/SYNC_READ have been removed. Configuration writes,
 factory reset and requested reboot inhibit ARM. Flash errors set the internal
 fault and are reported as a failed operation; they do not guarantee rollback
 of a partially written flash page. Reset always starts disarmed.
+Serial TX holds at most 31 packets, each up to 256 bytes, including the active
+DMA packet. Full queues and invalid lengths are rejected without overwriting
+pending data. Start/runtime DMA failures discard pending replies, release the
+half-duplex direction and latch `HAL_Serial_Handler.tx_error` until Init.
+Formatted diagnostics use a fixed buffer and reject oversized output.
 
 Existing EEPROM is not silently migrated. Settings such as 14 encoder bits,
 26 A or 16000 degrees/s now prevent ARM. Read/repair configuration while
@@ -171,7 +198,7 @@ The register is `REG_HARDWARE_ERROR_STATUS` at `0xB1`, readable over serial.
 | 0 | Bus below/above configured limits | Live voltage service clears in range; filtered reading needs startup settling |
 | 1 | AS5600 initialization, I2C read or magnet-status failure | Latched until MCU reset |
 | 2 | Encoder sample older than 1200 us | A fresh sample clears only after torque enable is off |
-| 3 | Internal fault: ADC error, CORDIC failure, invalid output arithmetic or persistence failure | Latched until MCU reset |
+| 3 | Internal fault: ADC error or incoherent acquisition pair, CORDIC failure, invalid output arithmetic or persistence failure | Latched until MCU reset |
 | 4 | FOC timestamp older than 10 ms | Latched until MCU reset |
 | 5 | Measured phase overcurrent | Latched until MCU reset |
 | 6 | Over-temperature | Live service clears after 12 °C hysteresis |

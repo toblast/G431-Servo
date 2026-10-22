@@ -6,6 +6,50 @@ ARM/DISARM, watchdogs, disabled outputs and outer position/velocity control.
 The subsequent instruction to implement the points and commit each one replaced
 the original read-only instruction.
 
+## 2026-10-22 follow-up
+
+A fresh read-only audit compared `ed8fce4` with original baseline `3f283ea`.
+The user then authorized fixes that did not require a control-policy preference.
+The following register supersedes the earlier remaining-work list where noted.
+Earlier line anchors document the first patch series; use function names and
+the commits below for the current locations.
+
+| Finding / classification | Current correction | Commit |
+| --- | --- | --- |
+| P1 confirmed inherited bug: AS5600 CONF operations addressed ZPOS | Read/write CONF at `0x07`, verify readback and preserve ZPOS; keep nominal mode with power-saving WD off. Also correct helper byte order and preserve outputs on failed reads | `8296b78` |
+| P1 confirmed inherited bug: repeated samples from one ADC could trigger FOC with another phase stale | Require ADC1 and ADC2 contributions in the same PWM sampling half-cycle; duplicate or incomplete active pairs latch internal fault and coast; discard incomplete IDLE startup pairs | `6b20f88` |
+| P1 inherited protection gap: calibration did not check FOC age | Share `API_FOC_Check_Watchdog` between normal operation and all calibration waits; >10 ms age cancels calibration, coasts and latches FOC timeout | `acdd8e7` |
+| P2 contract mismatch: button calibration forcibly disarmed a running servo | Ignore an armed press; consume that edge and require release/new press while disarmed. The calibration API retains its atomic entry guard | `e678cd1` |
+| P2 confirmed inherited serial bugs: queue overwrote active/pending DMA data, failures wedged TX, formatting lacked bounds | Hold each slot until completion, reject full/oversized writes, latch DMA failures and clear pending replies, use bounded formatting, and normalize RX reload position | `8c32f7f` |
+| P2 previously deferred bug: telemetry float-to-integer conversion was unbounded | Saturate existing signed/byte fields; define NaN/infinity handling and zero-uptime frequency behavior. No CAN fields added | `447fbae` |
+| Naming/documentation inconsistencies | Explicit multiturn angle and velocity-Dps API, `Q31ToFloat`, uppercase serial constants, correct active Ki/scaling comments, one CAN-termination flag and complete public sensor declarations | `affd6b6` |
+
+The sensor configuration follows the [ams AS5600 datasheet](https://www.mouser.com/datasheet/3/5912/1/AS5600_DS000365_5_00.pdf):
+CONF is distinct from ZPOS, and WD is an inactivity power-saving feature.
+Existing hardware must repeat bench motor alignment after this fix because
+the former driver overwrote the encoder zero. The saved alignment is not
+automatically migrated, and startup calibration remains prohibited.
+
+Naming now distinguishes position units and multiturn meaning. Module API
+prefixes (`API_FOC_`, `positionSensor_`, `HAL_Serial_`, `Servo_`) retain their
+existing boundaries; no broad FOC or control-law rename was needed. The legacy
+`pic.c` filename and unused compatibility registers remain intentionally intact.
+
+Validation: eleven native suites, including the original 240 CAN assertions,
+plus default `-Og` and optimized `-O2` ARM builds. New cases cover wrong sensor
+configuration/readback, missing ADC streams, FOC loss at multiple calibration
+stages, armed button presses, UART queue saturation/DMA failures and extreme
+telemetry. The inherited CCMRAM RWX warning remains. No flashing or bench
+result is claimed.
+
+Preference-dependent work remains open: continuous measured-travel violation
+behavior/recovery, velocity-field and damping changes, armed overspeed policy,
+independent-watchdog timing/recovery, and persistence format/legacy-configuration
+migration. Current position bounds are target limits and initial-ARM checks;
+they are not a measured-travel interlock. Single-page persistence still lacks
+a configuration CRC and transactional power-loss recovery. CAN telemetry
+expansion remains deferred until command behavior has been bench validated.
+
 ## Repository and selected variant
 
 - Active branch: `simplified`.
@@ -69,7 +113,7 @@ the explicit project requirements justified them.
 | ARM conversion and initial limit mismatch | `main.c`, callback new-ARM branch | Multiturn position outside the signed wire range could be converted out of range; a hold outside soft limits could jump to a clamp boundary. Fixed by rejecting nonfinite/out-of-limit initial position before conversion in `9510497` |
 | ARM during maintenance | `protocol.c`, configuration writes/reset; `control_table.c`, configuration interlock | CAN could rearm during flash operation or the serial reset delay after disarming. Inhibit ARM throughout maintenance; release on completion/failure, retain through reset. Fixed in `5ece1a6` |
 | Foreground and software watchdog timing | `main.c`, foreground scheduler/watchdog; calibration serviced waits | Foreground stalls delay CAN timeout evaluation. Total MCU lockup is not covered by an independent watchdog. Fixed-bounds parsing and immediate ISR fault gating reduce exposure; an independent watchdog/timing budget remains a separate bench-driven task |
-| Persistence integrity and telemetry range | `eeprom.c`, one-page store; `main.c`, telemetry conversion block | Power loss can leave partially programmed configuration; no CRC proves integrity. Extreme out-of-range multiturn/velocity telemetry is not saturated before integer conversion. Deferred targeted hardening; these are not claimed solved by parameter validation |
+| Persistence integrity and telemetry range | `eeprom.c`, one-page store; `main.c`, telemetry conversion block | Power loss can leave partially programmed configuration; no CRC proves integrity. Telemetry saturation was completed in the 2026-10-22 follow-up; persistence format/migration remains deferred |
 
 ## Documentation mismatches
 
@@ -108,7 +152,7 @@ the explicit project requirements justified them.
 
 ## Validation and prioritized remaining plan
 
-Software validation: all nine native regression suites pass, including 240 CAN
+Software validation: all eleven native regression suites pass, including 240 CAN
 assertions. They exercise saved production code with mocked peripherals. Both
 default `-Og` and separate `-O2` ARM builds pass with Arm GNU 14.3.rel1. The
 inherited CCMRAM RWX LOAD-segment linker warning remains. No firmware was
@@ -130,8 +174,8 @@ point has its own commit; table entries above link fixes to commit IDs.
 3. **P1 Fault and command campaign:** execute all abnormal conditions in the
    [bench checklist](servo-drive.md#bench-validation), including CAN loss,
    wrong/malformed frames, one-controller resets and low-current stall.
-4. **P2 Targeted follow-up patches:** saturate telemetry conversion; make saved
-   configuration integrity/power-loss behavior explicit; consider a hardware
+4. **P2 Targeted follow-up patches:** telemetry conversion is now saturated; select saved
+   configuration integrity/power-loss and migration behavior; consider a hardware
    watchdog after the measured worst-case timing budget is known. One logical
    fix and test/build per commit.
 5. **P2 Decide, then patch controller/protocol changes:** determine whether to
