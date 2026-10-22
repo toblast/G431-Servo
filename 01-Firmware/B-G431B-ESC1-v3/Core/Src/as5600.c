@@ -174,6 +174,7 @@ typedef union
 } mag_reg_t;
 
 HAL_StatusTypeDef AS5600_SetConfig(AS5600_TypeDef *const as5600, conf_reg_t conf);
+HAL_StatusTypeDef AS5600_GetConfig(AS5600_TypeDef *const as5600, conf_reg_t *conf);
 HAL_StatusTypeDef AS5600_GetMagnetStatus(AS5600_TypeDef *const a, status_reg_t *stat);
 
 
@@ -245,11 +246,16 @@ HAL_StatusTypeDef AS5600_Init(AS5600_TypeDef *as5600) {
 	// Possible configuration:
     // AS5600_WATCHDOG_OFF 0
     // AS5600_WATCHDOG_ON 1
-   	config.bit.WD = AS5600_WATCHDOG_ON;
+	// This is a power-saving watchdog, not a fault detector. Keep the encoder
+	// in nominal mode even after a long stationary hold.
+	config.bit.WD = AS5600_WATCHDOG_OFF;
 
 	// write configuration to sensor
    	// *****************************
-	if (AS5600_SetConfig(as5600, config) != HAL_OK){
+	conf_reg_t readback;
+	if (AS5600_SetConfig(as5600, config) != HAL_OK ||
+	    AS5600_GetConfig(as5600, &readback) != HAL_OK ||
+	    readback.raw != config.raw){
         status = HAL_ERROR;
         return status;
  	}
@@ -331,7 +337,7 @@ HAL_StatusTypeDef AS5600_GetCORDICMagnitude(AS5600_TypeDef *const a,
     		                AS5600_MAG_REG_ADDR,
     		                I2C_MEMADD_SIZE_8BIT,
 							(uint8_t*)&data.raw,2,2) != HAL_OK) {
-        status = HAL_ERROR;
+        return HAL_ERROR;
     }
     *mag = ((data.bit.magnitude8_12<<8)&0xF00)|data.bit.magnitude0_7;
 
@@ -343,8 +349,8 @@ HAL_StatusTypeDef AS5600_SetMaxAngle(AS5600_TypeDef *const a,
     HAL_StatusTypeDef status = HAL_OK;
     mang_reg_t data;
     data.raw=0;
-    data.bit.mang0_7 = ((angle>>8)&0xFF);
-    data.bit.mang8_12 = angle & 0xFF;
+    data.bit.mang8_12 = (angle >> 8) & 0x0F;
+    data.bit.mang0_7 = angle & 0xFF;
     if (HAL_I2C_Mem_Write(a->i2cHandle, a->i2cAddr,
     						 AS5600_MANG_REG_ADDR,
 							 I2C_MEMADD_SIZE_8BIT,
@@ -367,7 +373,8 @@ HAL_StatusTypeDef AS5600_GetMaxAngle(AS5600_TypeDef *const a,
 							 (uint8_t*)&data.raw, 2,2) != HAL_OK) {
         status = HAL_ERROR;
     }
-    *angle = ((data.bit.mang8_12<<8)&0xF00)|data.bit.mang0_7;;
+    if (status == HAL_OK)
+        *angle = ((data.bit.mang8_12<<8)&0xF00)|data.bit.mang0_7;
 
     return status;
 }
@@ -377,8 +384,8 @@ HAL_StatusTypeDef AS5600_SetStopPosition(AS5600_TypeDef *const a,
     HAL_StatusTypeDef status = HAL_OK;
     mpos_reg_t data;
     data.raw=0;
-    data.bit.mpos0_7 = ((pos>>8)&0xFF);
-    data.bit.mpos8_12 = pos & 0xFF;
+    data.bit.mpos8_12 = (pos >> 8) & 0x0F;
+    data.bit.mpos0_7 = pos & 0xFF;
     if (HAL_I2C_Mem_Write(a->i2cHandle, a->i2cAddr,
     		                 AS5600_MPOS_REG_ADDR,
 							 I2C_MEMADD_SIZE_8BIT,
@@ -400,7 +407,8 @@ HAL_StatusTypeDef AS5600_GetStopPosition(AS5600_TypeDef *const a,
 							 (uint8_t*)&data.raw, 2,2) != HAL_OK) {
         status = HAL_ERROR;
     }
-    *pos = ((data.bit.mpos8_12<<8)&0xF00)|data.bit.mpos0_7;;
+    if (status == HAL_OK)
+        *pos = ((data.bit.mpos8_12<<8)&0xF00)|data.bit.mpos0_7;
 
     return status;
 }
@@ -410,8 +418,8 @@ HAL_StatusTypeDef AS5600_SetStartPosition(AS5600_TypeDef *const a,
     HAL_StatusTypeDef status = HAL_OK;
     zpos_reg_t data;
     data.raw=0;
-    data.bit.zpos0_7 = ((pos>>8)&0xFF);
-    data.bit.zpos8_12 = pos & 0xFF;
+    data.bit.zpos8_12 = (pos >> 8) & 0x0F;
+    data.bit.zpos0_7 = pos & 0xFF;
     if (HAL_I2C_Mem_Write(a->i2cHandle, a->i2cAddr,
                              AS5600_ZPOS_REG_ADDR,
 			                 I2C_MEMADD_SIZE_8BIT,
@@ -432,7 +440,8 @@ HAL_StatusTypeDef AS5600_GetStartPosition(AS5600_TypeDef *const a, uint16_t *pos
 							 (uint8_t*)&data.raw, 2,2) != HAL_OK) {
         status = HAL_ERROR;
     }
-    *pos=((data.bit.zpos8_12<<8)&0xF00)|data.bit.zpos0_7;;
+    if (status == HAL_OK)
+        *pos = ((data.bit.zpos8_12<<8)&0xF00)|data.bit.zpos0_7;
 
     return status;
 }
@@ -440,7 +449,7 @@ HAL_StatusTypeDef AS5600_GetStartPosition(AS5600_TypeDef *const a, uint16_t *pos
 HAL_StatusTypeDef AS5600_SetConfig(AS5600_TypeDef *const a, conf_reg_t conf) {
     HAL_StatusTypeDef status = HAL_OK;
     if (HAL_I2C_Mem_Write(a->i2cHandle, a->i2cAddr,
-                             AS5600_ZPOS_REG_ADDR,
+                             AS5600_CONF_REG_ADDR,
 			                 I2C_MEMADD_SIZE_8BIT,
 							 (uint8_t*)&conf.raw, 2,2) != HAL_OK) {
         status = HAL_ERROR;
@@ -451,12 +460,14 @@ HAL_StatusTypeDef AS5600_SetConfig(AS5600_TypeDef *const a, conf_reg_t conf) {
 
 HAL_StatusTypeDef AS5600_GetConfig(AS5600_TypeDef *const a, conf_reg_t *conf) {
     HAL_StatusTypeDef status = HAL_OK;
+    conf_reg_t data;
     if (HAL_I2C_Mem_Read(a->i2cHandle, a->i2cAddr,
-                             AS5600_ZPOS_REG_ADDR,
+                             AS5600_CONF_REG_ADDR,
 			                 I2C_MEMADD_SIZE_8BIT,
-							 (uint8_t*)conf, 2,2) != HAL_OK) {
+							 (uint8_t*)&data.raw, 2,2) != HAL_OK) {
         status = HAL_ERROR;
     }
+    if (status == HAL_OK) conf->raw = data.raw;
 
     return status;
 }

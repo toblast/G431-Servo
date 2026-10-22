@@ -18,6 +18,7 @@ static unsigned observed_samples;
 static uint8_t bus[256];
 static int failed_read_reg = -1;
 static int failed_write;
+static int ignored_config_write;
 static int partial_read;
 static uint16_t acquisition_us;
 static unsigned failures;
@@ -53,6 +54,7 @@ HAL_StatusTypeDef HAL_I2C_Mem_Write(I2C_HandleTypeDef *handle, uint16_t address,
 {
     (void)handle; (void)address; (void)reg_size; (void)timeout;
     if (failed_write) return HAL_ERROR;
+    if (ignored_config_write && reg == AS5600_CONF_REG_ADDR) return HAL_OK;
     memcpy(&bus[reg], data, count);
     return HAL_OK;
 }
@@ -73,6 +75,7 @@ static void fixture(uint16_t angle, uint16_t start_us)
     memset(regs, 0, sizeof regs);
     failed_read_reg = -1;
     failed_write = partial_read = 0;
+    ignored_config_write = 0;
     acquisition_us = 0;
     test_primask = 0;
     test_irq_restored = NULL;
@@ -97,6 +100,49 @@ static void test_driver_failure_keeps_caller_output(void)
     failed_read_reg = 0x0c;
     CHECK(AS5600_GetRawAngle(&encoder, &angle) != HAL_OK);
     CHECK(angle == 0x7654);
+}
+
+static void test_configuration_preserves_zero_and_verifies_readback(void)
+{
+    fixture(1000, 100);
+    bus[0x01] = 0x0a;
+    bus[0x02] = 0xbc;
+    CHECK(positionSensor_init() == 1);
+    CHECK(bus[0x01] == 0x0a && bus[0x02] == 0xbc);
+    CHECK(bus[0x07] == 0x03 && bus[0x08] == 0x00); /* 2x filter, nominal, WD off */
+
+    fixture(1000, 100);
+    ignored_config_write = 1;
+    CHECK(positionSensor_init() == 0);
+    CHECK(hardware_fault_status() & (1U << HW_ERROR_BIT_POSITION_SENSOR_STATUS_ERROR));
+    fixture(1000, 100);
+    failed_read_reg = AS5600_CONF_REG_ADDR;
+    CHECK(positionSensor_init() == 0);
+}
+
+static void test_register_helpers_use_wire_byte_order(void)
+{
+    fixture(0, 0);
+    AS5600_TypeDef encoder = { &hi2c1, 0x6c };
+    uint16_t value = 0;
+    CHECK(AS5600_SetStartPosition(&encoder, 0xabc) == HAL_OK);
+    CHECK(bus[0x01] == 0x0a && bus[0x02] == 0xbc);
+    CHECK(AS5600_GetStartPosition(&encoder, &value) == HAL_OK && value == 0xabc);
+    CHECK(AS5600_SetStopPosition(&encoder, 0x123) == HAL_OK);
+    CHECK(bus[0x03] == 0x01 && bus[0x04] == 0x23);
+    CHECK(AS5600_GetStopPosition(&encoder, &value) == HAL_OK && value == 0x123);
+    CHECK(AS5600_SetMaxAngle(&encoder, 0x456) == HAL_OK);
+    CHECK(bus[0x05] == 0x04 && bus[0x06] == 0x56);
+    CHECK(AS5600_GetMaxAngle(&encoder, &value) == HAL_OK && value == 0x456);
+    value = 0x7654;
+    failed_read_reg = AS5600_MAG_REG_ADDR;
+    CHECK(AS5600_GetCORDICMagnitude(&encoder, &value) != HAL_OK && value == 0x7654);
+    failed_read_reg = AS5600_ZPOS_REG_ADDR;
+    CHECK(AS5600_GetStartPosition(&encoder, &value) != HAL_OK && value == 0x7654);
+    failed_read_reg = AS5600_MPOS_REG_ADDR;
+    CHECK(AS5600_GetStopPosition(&encoder, &value) != HAL_OK && value == 0x7654);
+    failed_read_reg = AS5600_MANG_REG_ADDR;
+    CHECK(AS5600_GetMaxAngle(&encoder, &value) != HAL_OK && value == 0x7654);
 }
 
 static void test_initialization_requires_valid_encoder(void)
@@ -303,6 +349,8 @@ int main(int argc, char **argv)
         test_failed_runtime_sample_preserves_state();
     }
     if (selected(group, "init")) {
+        test_configuration_preserves_zero_and_verifies_readback();
+        test_register_helpers_use_wire_byte_order();
         test_initialization_requires_valid_encoder();
     }
     if (selected(group, "timing")) {
