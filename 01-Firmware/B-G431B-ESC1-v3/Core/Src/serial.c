@@ -9,6 +9,9 @@
 
 #include <string.h>
 #include <stdarg.h>
+#include <stdio.h>
+
+static void Serial_Tx_Fail(HAL_Serial_Handler *hserial, HAL_StatusTypeDef status);
 
 /// Store hserial to handle HAL_UART_TxCpltCallback
 /// This table has to be filled in the application code
@@ -17,13 +20,18 @@ uint32_t serial_counter = 0;
 
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
-	static int id = 0;
-	for(id=0;id!=serial_counter;++id)
+	for(uint32_t id=0;id!=serial_counter;++id)
 	{
 		if(hserial_table[id]->huart == huart)
 		{
+			uint32_t const primask = __get_PRIMASK();
+			__disable_irq();
+			if ((huart->ErrorCode & HAL_UART_ERROR_DMA) != 0 &&
+			    hserial_table[id]->tx_dma && huart->gState == HAL_UART_STATE_READY)
+				Serial_Tx_Fail(hserial_table[id], HAL_ERROR);
 			hserial_table[id]->rx_tail_ptr = hserial_table[id]->rx_circular_buffer;
 			HAL_UART_Receive_DMA(hserial_table[id]->huart, hserial_table[id]->rx_circular_buffer,size_of_rx_circular_buffer);
+			__set_PRIMASK(primask);
 		   break;
 		}
 	}
@@ -39,6 +47,7 @@ void HAL_Serial_Init(UART_HandleTypeDef * huart, HAL_Serial_Handler * hserial)
     hserial->tx_head_position = 0;
     hserial->tx_tail_position = 0;
 	hserial->tx_dma = 0;
+	hserial->tx_error = HAL_OK;
 
 	// reset rx circular buffer
 	hserial->rx_tail_ptr = hserial->rx_circular_buffer;
@@ -75,6 +84,7 @@ void HAL_Serial_Init_Half_Duplex(
     hserial->tx_head_position = 0;
     hserial->tx_tail_position = 0;
 	hserial->tx_dma = 0;
+	hserial->tx_error = HAL_OK;
 
 	// reset rx circular buffer
 	hserial->rx_tail_ptr = hserial->rx_circular_buffer;
@@ -99,7 +109,7 @@ int HAL_Serial_Available(HAL_Serial_Handler * hserial)
 {
     if(hserial->huart == 0)
         return 0;
-    uint8_t const * head = hserial->rx_circular_buffer + size_of_rx_circular_buffer - __HAL_DMA_GET_COUNTER(hserial->huart->hdmarx);
+    uint8_t const * head = hserial->rx_circular_buffer + (size_of_rx_circular_buffer - __HAL_DMA_GET_COUNTER(hserial->huart->hdmarx)) % size_of_rx_circular_buffer;
     uint8_t const * tail = hserial->rx_tail_ptr;
     if( head>=tail )
         return head-tail;
@@ -111,7 +121,7 @@ char HAL_Serial_GetChar(HAL_Serial_Handler * hserial)
 {
     if(hserial->huart == 0)
         return 0;
-    uint8_t const * head = hserial->rx_circular_buffer + size_of_rx_circular_buffer - __HAL_DMA_GET_COUNTER(hserial->huart->hdmarx);
+    uint8_t const * head = hserial->rx_circular_buffer + (size_of_rx_circular_buffer - __HAL_DMA_GET_COUNTER(hserial->huart->hdmarx)) % size_of_rx_circular_buffer;
     uint8_t const * tail = hserial->rx_tail_ptr;
     if(head!=tail)
     {
@@ -126,9 +136,9 @@ char HAL_Serial_GetChar(HAL_Serial_Handler * hserial)
 
 int HAL_Serial_Read(HAL_Serial_Handler * hserial, uint8_t * ptr, int len )
 {
-    if(hserial->huart == 0)
+    if(hserial->huart == 0 || ptr == NULL || len <= 0)
         return 0;
-    uint8_t const * head = hserial->rx_circular_buffer + size_of_rx_circular_buffer - __HAL_DMA_GET_COUNTER(hserial->huart->hdmarx);
+    uint8_t const * head = hserial->rx_circular_buffer + (size_of_rx_circular_buffer - __HAL_DMA_GET_COUNTER(hserial->huart->hdmarx)) % size_of_rx_circular_buffer;
     int counter = 0;
     while(counter!=len)
     {
@@ -142,260 +152,83 @@ int HAL_Serial_Read(HAL_Serial_Handler * hserial, uint8_t * ptr, int len )
     return counter;
 }
 
-int HAL_Serial_Write(HAL_Serial_Handler * hserial, uint8_t const * ptr, int len )
+static void Serial_Tx_Direction(HAL_Serial_Handler *hserial, bool transmit)
 {
-    if(hserial->huart == 0)
-        return 0;
-
-    // copy user data into the head tx buffer into tx pool, inc tx pool head
-    hserial->tx_buffer_pool[hserial->tx_head_position].length = len;
-    uint8_t * dst = hserial->tx_buffer_pool[hserial->tx_head_position].data;
-    memcpy(dst,ptr,len);
-    hserial->tx_head_position = (hserial->tx_head_position + 1 ) % size_of_tx_pool;
-
-    // if no tx dma running, start tx dma
-    if(hserial->tx_dma==0)
-    {
-    	// set tx dma running
-        hserial->tx_dma=1;
-
-        // TX = ON
-        if(hserial->half_duplex)
-        {
-        	HAL_GPIO_WritePin(hserial->GPIOx_DIR_TX,hserial->GPIO_Pin_DIR_TX,hserial->PinState_DIR_TX);
-        	HAL_GPIO_WritePin(hserial->GPIOx_DIR_RX,hserial->GPIO_Pin_DIR_RX,hserial->PinState_DIR_RX==GPIO_PIN_RESET?GPIO_PIN_SET:GPIO_PIN_RESET);
-        }
-
-        // transmit serial internal tx buffer using DMA if no DMA running
-        //HAL_StatusTypeDef result = 0;
-        //do
-        //{
-        	//result =
-        	HAL_UART_Transmit_DMA(
-        			hserial->huart,
-					hserial->tx_buffer_pool[hserial->tx_tail_position].data,
-					hserial->tx_buffer_pool[hserial->tx_tail_position].length
-					);
-        //}
-        //while(result!=HAL_OK);
-        hserial->tx_tail_position = (hserial->tx_tail_position + 1 ) % size_of_tx_pool;
-
-    }
-    else
-    {
-    	// end of tx dma callback will start next tx dma
-    }
-    return len;
+    if (!hserial->half_duplex) return;
+    HAL_GPIO_WritePin(hserial->GPIOx_DIR_TX, hserial->GPIO_Pin_DIR_TX,
+        transmit ? hserial->PinState_DIR_TX : (hserial->PinState_DIR_TX == GPIO_PIN_RESET ? GPIO_PIN_SET : GPIO_PIN_RESET));
+    HAL_GPIO_WritePin(hserial->GPIOx_DIR_RX, hserial->GPIO_Pin_DIR_RX,
+        transmit ? (hserial->PinState_DIR_RX == GPIO_PIN_RESET ? GPIO_PIN_SET : GPIO_PIN_RESET) : hserial->PinState_DIR_RX);
 }
 
-//void HAL_USART_ErrorCallback()
-//{
-//	HAL_Delay(100);
-//
-//}
+// Call with interrupts masked. A failed transfer discards pending replies so
+// a later request cannot receive old responses from before the UART failure.
+static void Serial_Tx_Fail(HAL_Serial_Handler *hserial, HAL_StatusTypeDef status)
+{
+    hserial->tx_error = status;
+    hserial->tx_head_position = hserial->tx_tail_position;
+    hserial->tx_dma = 0;
+    Serial_Tx_Direction(hserial, false);
+}
+
+static HAL_StatusTypeDef Serial_Tx_Start(HAL_Serial_Handler *hserial)
+{
+    if (hserial->tx_head_position == hserial->tx_tail_position) {
+        Serial_Tx_Direction(hserial, false);
+        return HAL_OK;
+    }
+    Serial_Tx_Direction(hserial, true);
+    tx_buffer const *slot = &hserial->tx_buffer_pool[hserial->tx_tail_position];
+    HAL_StatusTypeDef const status = HAL_UART_Transmit_DMA(hserial->huart, slot->data, slot->length);
+    if (status == HAL_OK) hserial->tx_dma = 1;
+    else Serial_Tx_Fail(hserial, status);
+    return status;
+}
+
+int HAL_Serial_Write(HAL_Serial_Handler *hserial, uint8_t const *ptr, int len)
+{
+    if (hserial == NULL || hserial->huart == NULL || ptr == NULL ||
+        len <= 0 || len > size_of_tx_buffer) return 0;
+    uint32_t const primask = __get_PRIMASK();
+    __disable_irq();
+    uint32_t const next = (hserial->tx_head_position + 1U) % size_of_tx_pool;
+    if (next == hserial->tx_tail_position) {
+        __set_PRIMASK(primask);
+        return 0;
+    }
+    tx_buffer *slot = &hserial->tx_buffer_pool[hserial->tx_head_position];
+    memcpy(slot->data, ptr, (size_t)len);
+    slot->length = (uint32_t)len;
+    hserial->tx_head_position = next;
+    HAL_StatusTypeDef const status = hserial->tx_dma ? HAL_OK : Serial_Tx_Start(hserial);
+    __set_PRIMASK(primask);
+    return status == HAL_OK ? len : 0;
+}
 
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 {
-    static int id = 0;
-    for(id=0;id!=serial_counter;++id)
-    {
-        if(hserial_table[id]->huart == huart && hserial_table[id]->tx_dma == 1)
-        {
-			// tx buffer from pool waiting for transmission ?
-			if(hserial_table[id]->tx_head_position!=hserial_table[id]->tx_tail_position)
-			{
-		        // transmit serial internal tx buffer using DMA if no DMA running
-		        //HAL_StatusTypeDef result = 0;
-		        //do
-		        //{
-		        	//result =
-				 HAL_UART_Transmit_DMA(
-		        			hserial_table[id]->huart,
-							hserial_table[id]->tx_buffer_pool[hserial_table[id]->tx_tail_position].data,
-							hserial_table[id]->tx_buffer_pool[hserial_table[id]->tx_tail_position].length
-							);
-		        //}
-		        //while(result!=HAL_OK);
-
-				// inc tail
-				hserial_table[id]->tx_tail_position = (hserial_table[id]->tx_tail_position + 1 ) % size_of_tx_pool;
-			}
-			else
-			{
-				// reset tx dma
-				hserial_table[id]->tx_dma = 0;
-
-		        // TX = OFF
-		        if(hserial_table[id]->half_duplex)
-		        {
-		        	HAL_GPIO_WritePin(hserial_table[id]->GPIOx_DIR_TX,hserial_table[id]->GPIO_Pin_DIR_TX,hserial_table[id]->PinState_DIR_TX==GPIO_PIN_RESET?GPIO_PIN_SET:GPIO_PIN_RESET);
-		        	HAL_GPIO_WritePin(hserial_table[id]->GPIOx_DIR_RX,hserial_table[id]->GPIO_Pin_DIR_RX,hserial_table[id]->PinState_DIR_RX);
-		        }
-
-			}
-           break;
-        }
+    uint32_t const primask = __get_PRIMASK();
+    __disable_irq();
+    for (uint32_t id = 0; id < serial_counter; ++id) {
+        HAL_Serial_Handler *hserial = hserial_table[id];
+        if (hserial->huart != huart || !hserial->tx_dma) continue;
+        // Only the completion callback releases the buffer owned by DMA.
+        hserial->tx_dma = 0;
+        hserial->tx_tail_position = (hserial->tx_tail_position + 1U) % size_of_tx_pool;
+        Serial_Tx_Start(hserial);
+        break;
     }
+    __set_PRIMASK(primask);
 }
 
-
-/**
-**---------------------------------------------------------------------------
-**  Abstract: Convert integer to ascii
-**  Returns:  void
-**---------------------------------------------------------------------------
-*/
-void ts_itoa(char **buf, unsigned int d, int base)
+int HAL_Serial_Print(HAL_Serial_Handler *hserial, const char *fmt, ...)
 {
-	int div = 1;
-	while (d/div >= base)
-		div *= base;
-
-	while (div != 0)
-	{
-		int num = d/div;
-		d = d%div;
-		div /= base;
-		if (num > 9)
-			*((*buf)++) = (num-10) + 'A';
-		else
-			*((*buf)++) = num + '0';
-	}
-}
-
-/**
-**---------------------------------------------------------------------------
-**  Abstract: Writes arguments va to buffer buf according to format fmt
-**  Returns:  Length of string
-**---------------------------------------------------------------------------
-*/
-int ts_formatstring(char *buf, const char *fmt, va_list va)
-{
-	char *start_buf = buf;
-	while(*fmt)
-	{
-		/* Character needs formating? */
-		if (*fmt == '%')
-		{
-			switch (*(++fmt))
-			{
-			  case 'c':
-				*buf++ = va_arg(va, int);
-				break;
-			  case 'd':
-			  case 'i':
-				{
-					signed int val = va_arg(va, signed int);
-					if (val < 0)
-					{
-						val *= -1;
-						*buf++ = '-';
-					}
-					ts_itoa(&buf, val, 10);
-				}
-				break;
-			  case 's':
-				{
-					char * arg = va_arg(va, char *);
-					while (*arg)
-					{
-						*buf++ = *arg++;
-					}
-				}
-				break;
-			  case 'u':
-					ts_itoa(&buf, va_arg(va, unsigned int), 10);
-				break;
-			  case 'x':
-			  case 'X':
-					ts_itoa(&buf, va_arg(va, int), 16);
-				break;
-			  case '%':
-				  *buf++ = '%';
-				  break;
-			}
-			fmt++;
-		}
-		/* Else just copy */
-		else
-		{
-			*buf++ = *fmt++;
-		}
-	}
-	*buf = 0;
-
-	return (int)(buf - start_buf);
-}
-
-
-/**
-**---------------------------------------------------------------------------
-**  Abstract: Calculate maximum length of the resulting string from the
-**            format string and va_list va
-**  Returns:  Maximum length
-**---------------------------------------------------------------------------
-*/
-int ts_formatlength(const char *fmt, va_list va)
-{
-	int length = 0;
-	while (*fmt)
-	{
-		if (*fmt == '%')
-		{
-			++fmt;
-			switch (*fmt)
-			{
-			  case 'c':
-		  		  va_arg(va, int);
-				  ++length;
-				  break;
-			  case 'd':
-			  case 'i':
-			  case 'u':
-				  /* 32 bits integer is max 11 characters with minus sign */
-				  length += 11;
-				  va_arg(va, int);
-				  break;
-			  case 's':
-			  	  {
-			  		  char * str = va_arg(va, char *);
-			  		  while (*str++)
-			  			  ++length;
-			  	  }
-				  break;
-			  case 'x':
-			  case 'X':
-				  /* 32 bits integer as hex is max 8 characters */
-				  length += 8;
-				  va_arg(va, unsigned int);
-				  break;
-			  default:
-				  ++length;
-				  break;
-			}
-		}
-		else
-		{
-			++length;
-		}
-		++fmt;
-	}
-	return length;
-}
-
-int HAL_Serial_Print(HAL_Serial_Handler * hserial,const char *fmt, ...)
-{
-	int length = 0;
-	va_list va;
-	va_start(va, fmt);
-	length = ts_formatlength(fmt, va);
-	va_end(va);
-	{
-		char buf[length];
-		va_start(va, fmt);
-		length = ts_formatstring(buf, fmt, va);
-		length = HAL_Serial_Write(hserial, (uint8_t*)buf, length);
-		va_end(va);
-	}
-	return length;
+    if (fmt == NULL) return 0;
+    char buffer[size_of_tx_buffer + 1];
+    va_list arguments;
+    va_start(arguments, fmt);
+    int const length = vsnprintf(buffer, sizeof buffer, fmt, arguments);
+    va_end(arguments);
+    if (length <= 0 || length > size_of_tx_buffer) return 0;
+    return HAL_Serial_Write(hserial, (uint8_t const *)buffer, length);
 }

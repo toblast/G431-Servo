@@ -39,9 +39,10 @@ typedef struct
     UART_HandleTypeDef * huart;
 
     tx_buffer tx_buffer_pool[size_of_tx_pool];
-    uint32_t tx_head_position;
-    uint32_t tx_tail_position;
+    volatile uint32_t tx_head_position;
+    volatile uint32_t tx_tail_position; // Includes the slot currently owned by DMA.
     volatile uint32_t tx_dma;
+    volatile HAL_StatusTypeDef tx_error; // Latched DMA-start/runtime error; reset by Init.
 
     uint8_t rx_circular_buffer[size_of_rx_circular_buffer];
     uint8_t const * rx_tail_ptr;
@@ -75,6 +76,7 @@ void HAL_Serial_Init_Half_Duplex(
 int HAL_Serial_Available(HAL_Serial_Handler * hserial);
 char HAL_Serial_GetChar(HAL_Serial_Handler * hserial);
 int HAL_Serial_Read(HAL_Serial_Handler * hserial, uint8_t * ptr, int len );
+// Returns len when queued, or zero for invalid input, full queue or start failure.
 int HAL_Serial_Write(HAL_Serial_Handler * hserial, uint8_t const * ptr, int len );
 int HAL_Serial_Print(HAL_Serial_Handler * hserial,const char *fmt, ...);
 
