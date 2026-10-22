@@ -612,13 +612,12 @@ int main(void)
 //			else
 //				regs[REG_TORQUE_ENABLE] = 0;
 
-			// Pressing the button starts calibration
+			// A new press may request calibration only while already disarmed.
 			bool const calibration_button_down = HAL_GPIO_ReadPin(BUTTON_GPIO_Port,BUTTON_Pin)==GPIO_PIN_RESET;
-			bool const calibration_requested = calibration_button_down && !calibration_button_was_down;
+			bool const calibration_requested = calibration_button_down && !calibration_button_was_down && Servo_Is_Disarmed();
 			calibration_button_was_down = calibration_button_down;
 			if(calibration_requested)
 			{
-				Servo_Disarm();
 				// start FOC calibration
 				int const result = API_FOC_Calibrate();
 				HAL_Serial_Print(&serial, "Calibration result: %d (0=success, 1=no motion, 2=pole pairs, 3=cancel/fault, 4=storage)\n", result);

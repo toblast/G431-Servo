@@ -25,6 +25,8 @@ static bool configuration_loaded, ram_reset, sensor_ready, cordic_ready;
 static bool foc_ready, service_ready, serial_ready, can_ready;
 static unsigned adc_callbacks;
 static bool mock_button_down;
+static bool mock_servo_disarmed = true;
+static bool Servo_Is_Disarmed(void) { return mock_servo_disarmed; }
 #define BUTTON_GPIO_Port 0
 #define BUTTON_Pin 0
 #define GPIO_PIN_RESET 0
@@ -112,6 +114,15 @@ int main(void)
         mock_button_down = button_states[i];
         /* BUTTON_EDGE */
         assert(calibration_requested == requests[i]);
+    }
+    bool const armed_button_states[] = { false, true, true, false, true };
+    bool const disarmed_states[] = { false, false, true, true, true };
+    bool const armed_requests[] = { false, false, false, false, true };
+    for (unsigned i = 0; i < sizeof armed_button_states / sizeof *armed_button_states; ++i) {
+        mock_button_down = armed_button_states[i];
+        mock_servo_disarmed = disarmed_states[i];
+        /* BUTTON_EDGE */
+        assert(calibration_requested == armed_requests[i]);
     }
     puts("Startup order, peripheral/timebase failures and held-button interlock passed.");
     return 0;

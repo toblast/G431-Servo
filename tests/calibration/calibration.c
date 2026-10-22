@@ -116,6 +116,8 @@ int main(void)
     reset_fixture(); stuck = true; check_failed(1);
     reset_fixture(); regs[REG_MOTOR_POLE_PAIRS] = 14; check_failed(2);
     reset_fixture(); ready = false; check_failed(3);
+    reset_fixture(); regs[REG_TORQUE_ENABLE] = 1; check_failed(3);
+    CHECK(regs[REG_TORQUE_ENABLE] == 1);
     reset_fixture(); foc_stop_at = 0; check_failed(3);
     CHECK(clock_us < 200000 && hardware_fault_status() == (1U << HW_ERROR_BIT_FOC_TIMEOUT));
     reset_fixture(); foc_stop_at = 500000; check_failed(3);
