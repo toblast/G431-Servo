@@ -11,6 +11,7 @@ TIM_HandleTypeDef htim6;
 uint32_t test_primask;
 void (*test_irq_restored)(void);
 static uint64_t clock_us, last_sample, last_service, cancel_at;
+static uint64_t foc_stop_at;
 static uint64_t max_sample_gap, max_service_gap;
 static unsigned failures, samples, services, stores, fault_after, cancellation_seen;
 static float rotor_angle, rotor_direction;
@@ -25,6 +26,11 @@ static void LL_FOC_coast(void) { }
 int positionSensor_isReady(void) { return ready; }
 bool control_configuration_valid(void) { return true; }
 float positionSensor_getRadians(void) { return rotor_angle; }
+uint32_t API_FOC_Get_Timestamp_ms(void)
+{
+    CHECK(test_primask == 1);
+    return (uint32_t)((clock_us < foc_stop_at ? clock_us : foc_stop_at) / 1000);
+}
 uint32_t HAL_GetTick(void)
 {
     clock_us += 50;
@@ -77,6 +83,7 @@ static void reset_fixture(void)
     clock_us = last_sample = last_service = 0;
     max_sample_gap = max_service_gap = 0;
     cancel_at = UINT64_MAX;
+    foc_stop_at = UINT64_MAX;
     samples = services = stores = fault_after = cancellation_seen = 0;
     rotor_angle = rotor_direction = 1;
     ready = true;
@@ -109,6 +116,14 @@ int main(void)
     reset_fixture(); stuck = true; check_failed(1);
     reset_fixture(); regs[REG_MOTOR_POLE_PAIRS] = 14; check_failed(2);
     reset_fixture(); ready = false; check_failed(3);
+    reset_fixture(); foc_stop_at = 0; check_failed(3);
+    CHECK(clock_us < 200000 && hardware_fault_status() == (1U << HW_ERROR_BIT_FOC_TIMEOUT));
+    reset_fixture(); foc_stop_at = 500000; check_failed(3);
+    CHECK(clock_us < 512000 && hardware_fault_status() == (1U << HW_ERROR_BIT_FOC_TIMEOUT));
+    reset_fixture(); foc_stop_at = 3000000; check_failed(3);
+    CHECK(clock_us < 3012000 && hardware_fault_status() == (1U << HW_ERROR_BIT_FOC_TIMEOUT));
+    reset_fixture(); clock_us = ((uint64_t)UINT32_MAX - 100) * 1000;
+    CHECK(API_FOC_Calibrate() == 0 && hardware_fault_status() == 0);
     reset_fixture(); store_status = HAL_ERROR;
     CHECK(API_FOC_Calibrate() == 4 && stores == 1);
     CHECK(!API_FOC_Is_Calibrating() && foc_state == FOC_STATE_IDLE);

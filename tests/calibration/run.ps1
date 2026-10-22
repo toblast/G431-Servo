@@ -8,7 +8,7 @@ $build = Join-Path $root 'build/tests/calibration'
 New-Item -ItemType Directory -Force -Path $build | Out-Null
 $source = Get-Content (Join-Path $firmware 'Core/Src/foc.c') -Raw
 $functions = ''
-foreach ($name in @('API_FOC_Is_Calibrating', 'API_FOC_Torque_Disable', 'FOC_Calibration_Idle', 'FOC_Calibration_Wait', 'FOC_Calibration_Enter_Flux', 'API_FOC_Calibrate')) {
+foreach ($name in @('API_FOC_Is_Calibrating', 'API_FOC_Torque_Disable', 'API_FOC_Check_Watchdog', 'FOC_Calibration_Idle', 'FOC_Calibration_Wait', 'FOC_Calibration_Enter_Flux', 'API_FOC_Calibrate')) {
     $match = [regex]::Match($source, "(?m)^(?:static )?(?:void|bool|int) $name\(")
     if (!$match.Success) { throw "Missing calibration function: $name" }
     $start = $match.Index

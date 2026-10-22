@@ -26,7 +26,10 @@ $settings = [regex]::Matches($source, '(?m)^#define (?:CAN_COMMAND_TIMEOUT_MS|FO
 $callback = [regex]::Match($source, '(?s)// CAN IT on message receive.*?(?=/\* USER CODE END 0 \*/)')
 if (!$globals.Success -or !$callback.Success) { throw 'Production CAN source markers were not found.' }
 $generated = Join-Path $buildRoot 'can_callback_test.c'
-[IO.File]::WriteAllText($generated, "#include `"can_fixture.h`"`n" + $settings + "`n" + $globals.Value + "`n" + $callback.Value + "`n#include `"can_tests.inc`"`n")
+$focSource = [IO.File]::ReadAllText((Join-Path $firmwareRoot 'Core/Src/foc.c'))
+$watchdog = [regex]::Match($focSource, '(?s)bool API_FOC_Check_Watchdog\(void\)\r?\n\{.*?\r?\n\}').Value
+if (!$watchdog) { throw 'Production FOC watchdog was not found.' }
+[IO.File]::WriteAllText($generated, "#include `"can_fixture.h`"`n" + $settings + "`n" + $globals.Value + "`n" + $watchdog + "`n" + $callback.Value + "`n#include `"can_tests.inc`"`n")
 $executable = Join-Path $buildRoot 'can_callback_test.exe'
 $compilerArgs = @('-std=c11', '-Wall', '-Wextra', '-Werror', '-O0',
     '-I', (Join-Path $testRoot 'stubs'), '-I', $testRoot,

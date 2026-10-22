@@ -59,7 +59,6 @@
 //  normal setting is 10000us (100Hz)
 #define SERVICE_LOOP_PERIOD 10000
 #define CAN_COMMAND_TIMEOUT_MS 1000U
-#define FOC_TIMEOUT_MS 10U
 
 // Advanced settings (do not change)
 #define ALPHA_VELOCITY				0.24f // (default:0.24) F = 1000Hz ==> Fc (-3dB) = 20Hz
@@ -227,9 +226,8 @@ static void Servo_Check_Watchdogs(void)
   {
     Servo_Disarm();
   }
-  if ((uint32_t)(now - API_FOC_Get_Timestamp_ms()) > FOC_TIMEOUT_MS)
+  if (!API_FOC_Check_Watchdog())
   {
-    hardware_fault_set((uint8_t)(1U << HW_ERROR_BIT_FOC_TIMEOUT));
     Servo_Disarm();
   }
   __set_PRIMASK(primask);

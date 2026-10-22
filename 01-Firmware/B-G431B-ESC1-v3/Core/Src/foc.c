@@ -152,6 +152,21 @@ bool API_FOC_Is_Calibrating(void)
 	return calibration_active;
 }
 
+bool API_FOC_Check_Watchdog(void)
+{
+	uint32_t const primask = __get_PRIMASK();
+	__disable_irq();
+	uint32_t const now = HAL_GetTick();
+	bool const responsive = (uint32_t)(now - API_FOC_Get_Timestamp_ms()) <= FOC_TIMEOUT_MS;
+	if (!responsive)
+	{
+		hardware_fault_set(1U << HW_ERROR_BIT_FOC_TIMEOUT);
+		API_FOC_Torque_Disable();
+	}
+	__set_PRIMASK(primask);
+	return responsive;
+}
+
 void API_FOC_Set_Torque_Flux_Currents_mA(float Iq_mA, float Id_mA)
 {
 	uint32_t const primask = __get_PRIMASK();
@@ -299,7 +314,8 @@ static bool FOC_Calibration_Wait(uint32_t duration_ms)
             API_FOC_Service_Update();
             calibration_last_service_ms = now;
         }
-        if (calibration_cancelled || hardware_fault_status() != 0 || !positionSensor_isReady())
+        if (!API_FOC_Check_Watchdog() || calibration_cancelled ||
+            hardware_fault_status() != 0 || !positionSensor_isReady())
             return false;
     } while ((uint32_t)(now - start) < duration_ms);
     return true;

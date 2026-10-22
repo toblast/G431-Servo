@@ -6,6 +6,7 @@
 #include <math.h>
 #include "control_table.h"
 #include "binary_tool.h"
+#include "foc.h"
 
 uint8_t regs[REG_MAX];
 FDCAN_HandleTypeDef hfdcan1;

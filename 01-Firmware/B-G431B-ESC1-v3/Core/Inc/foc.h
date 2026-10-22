@@ -15,10 +15,13 @@ extern "C" {
 #include "stm32g4xx_hal.h"
 #include <stdbool.h>
 
+#define FOC_TIMEOUT_MS 10U
+
 void API_FOC_Init();
 
 int API_FOC_Calibrate();
 bool API_FOC_Is_Calibrating(void);
+bool API_FOC_Check_Watchdog(void);
 
 void API_FOC_Torque_Enable();
 void API_FOC_Torque_Disable();
