@@ -9,21 +9,21 @@ static DMA_HandleTypeDef rx_dma;
 static UART_HandleTypeDef uart = { &rx_dma, HAL_UART_STATE_READY, 0 };
 static GPIO_TypeDef tx_direction, rx_direction;
 static uint8_t const *active_data;
-static uint8_t active_snapshot[size_of_tx_buffer];
+static uint8_t active_snapshot[SERIAL_TX_BUFFER_SIZE];
 static unsigned active_length, starts, received;
 static HAL_StatusTypeDef start_status;
 #define CHECK(condition) do { if (!(condition)) { fprintf(stderr, "Serial transport line %d: %s\n", __LINE__, #condition); exit(1); } } while (0)
 
 HAL_StatusTypeDef HAL_UART_Receive_DMA(UART_HandleTypeDef *handle, uint8_t *data, uint16_t size)
 {
-    CHECK(handle == &uart && data == handler.rx_circular_buffer && size == size_of_rx_circular_buffer);
+    CHECK(handle == &uart && data == handler.rx_circular_buffer && size == SERIAL_RX_BUFFER_SIZE);
     rx_dma.counter = size;
     ++received;
     return HAL_OK;
 }
 HAL_StatusTypeDef HAL_UART_Transmit_DMA(UART_HandleTypeDef *handle, uint8_t const *data, uint16_t size)
 {
-    CHECK(test_primask == 1 && handle == &uart && size > 0 && size <= size_of_tx_buffer);
+    CHECK(test_primask == 1 && handle == &uart && size > 0 && size <= SERIAL_TX_BUFFER_SIZE);
     ++starts;
     if (start_status != HAL_OK) return start_status;
     CHECK(active_data == NULL);
@@ -65,13 +65,13 @@ static uint8_t complete_transfer(void)
 int main(void)
 {
     reset_fixture();
-    for (unsigned i = 0; i < size_of_tx_pool - 1; ++i) {
+    for (unsigned i = 0; i < SERIAL_TX_POOL_SIZE - 1; ++i) {
         uint8_t value = (uint8_t)i;
         CHECK(HAL_Serial_Write(&handler, &value, 1) == 1);
     }
     uint8_t value = 99;
     CHECK(HAL_Serial_Write(&handler, &value, 1) == 0 && starts == 1 && active_data[0] == 0);
-    for (unsigned i = 0; i < size_of_tx_pool - 1; ++i) CHECK(complete_transfer() == i);
+    for (unsigned i = 0; i < SERIAL_TX_POOL_SIZE - 1; ++i) CHECK(complete_transfer() == i);
     CHECK(!handler.tx_dma && handler.tx_head_position == handler.tx_tail_position);
     CHECK(tx_direction.state == GPIO_PIN_RESET && rx_direction.state == GPIO_PIN_SET);
     for (unsigned i = 0; i < 1000; ++i) {
@@ -81,12 +81,12 @@ int main(void)
     }
     CHECK(HAL_Serial_Write(&handler, NULL, 1) == 0);
     CHECK(HAL_Serial_Write(&handler, &value, -1) == 0);
-    CHECK(HAL_Serial_Write(&handler, &value, size_of_tx_buffer + 1) == 0);
+    CHECK(HAL_Serial_Write(&handler, &value, SERIAL_TX_BUFFER_SIZE + 1) == 0);
     CHECK(HAL_Serial_Read(&handler, &value, -1) == 0);
     rx_dma.counter = 0; /* Circular DMA reload boundary is the start of the buffer. */
     CHECK(HAL_Serial_Available(&handler) == 0 && HAL_Serial_Read(&handler, &value, 1) == 0);
     CHECK(HAL_Serial_GetChar(&handler) == 0);
-    rx_dma.counter = size_of_rx_circular_buffer - 1;
+    rx_dma.counter = SERIAL_RX_BUFFER_SIZE - 1;
     handler.rx_circular_buffer[0] = 0x7e;
     CHECK(HAL_Serial_Available(&handler) == 1 && HAL_Serial_GetChar(&handler) == 0x7e);
     CHECK(HAL_Serial_Available(&handler) == 0);
@@ -115,10 +115,10 @@ int main(void)
     CHECK(HAL_Serial_Print(&handler, "%d %u %x", INT_MIN, UINT_MAX, UINT_MAX) == 31);
     CHECK(memcmp(active_data, "-2147483648 4294967295 ffffffff", 31) == 0);
     complete_transfer();
-    char text[size_of_tx_buffer + 2];
-    memset(text, 'x', sizeof text); text[size_of_tx_buffer] = 0;
-    CHECK(HAL_Serial_Print(&handler, "%s", text) == size_of_tx_buffer); complete_transfer();
-    text[size_of_tx_buffer] = 'x'; text[size_of_tx_buffer + 1] = 0;
+    char text[SERIAL_TX_BUFFER_SIZE + 2];
+    memset(text, 'x', sizeof text); text[SERIAL_TX_BUFFER_SIZE] = 0;
+    CHECK(HAL_Serial_Print(&handler, "%s", text) == SERIAL_TX_BUFFER_SIZE); complete_transfer();
+    text[SERIAL_TX_BUFFER_SIZE] = 'x'; text[SERIAL_TX_BUFFER_SIZE + 1] = 0;
     CHECK(HAL_Serial_Print(&handler, "%s", text) == 0 && !handler.tx_dma);
     CHECK(HAL_Serial_Print(&handler, "") == 0);
     puts("Serial queue saturation, DMA ownership/failures and bounded formatting passed.");

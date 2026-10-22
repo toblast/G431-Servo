@@ -30,7 +30,7 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 			    hserial_table[id]->tx_dma && huart->gState == HAL_UART_STATE_READY)
 				Serial_Tx_Fail(hserial_table[id], HAL_ERROR);
 			hserial_table[id]->rx_tail_ptr = hserial_table[id]->rx_circular_buffer;
-			HAL_UART_Receive_DMA(hserial_table[id]->huart, hserial_table[id]->rx_circular_buffer,size_of_rx_circular_buffer);
+			HAL_UART_Receive_DMA(hserial_table[id]->huart, hserial_table[id]->rx_circular_buffer,SERIAL_RX_BUFFER_SIZE);
 			__set_PRIMASK(primask);
 		   break;
 		}
@@ -53,7 +53,7 @@ void HAL_Serial_Init(UART_HandleTypeDef * huart, HAL_Serial_Handler * hserial)
 	hserial->rx_tail_ptr = hserial->rx_circular_buffer;
 
     // start rx DMA
-	HAL_UART_Receive_DMA(hserial->huart, hserial->rx_circular_buffer,size_of_rx_circular_buffer);
+	HAL_UART_Receive_DMA(hserial->huart, hserial->rx_circular_buffer,SERIAL_RX_BUFFER_SIZE);
 
 	// half-duplex
 	hserial->half_duplex = false;
@@ -90,7 +90,7 @@ void HAL_Serial_Init_Half_Duplex(
 	hserial->rx_tail_ptr = hserial->rx_circular_buffer;
 
     // start rx DMA
-	HAL_UART_Receive_DMA(hserial->huart, hserial->rx_circular_buffer,size_of_rx_circular_buffer);
+	HAL_UART_Receive_DMA(hserial->huart, hserial->rx_circular_buffer,SERIAL_RX_BUFFER_SIZE);
 
 	// half-duplex
 	hserial->half_duplex = true;
@@ -109,25 +109,25 @@ int HAL_Serial_Available(HAL_Serial_Handler * hserial)
 {
     if(hserial->huart == 0)
         return 0;
-    uint8_t const * head = hserial->rx_circular_buffer + (size_of_rx_circular_buffer - __HAL_DMA_GET_COUNTER(hserial->huart->hdmarx)) % size_of_rx_circular_buffer;
+    uint8_t const * head = hserial->rx_circular_buffer + (SERIAL_RX_BUFFER_SIZE - __HAL_DMA_GET_COUNTER(hserial->huart->hdmarx)) % SERIAL_RX_BUFFER_SIZE;
     uint8_t const * tail = hserial->rx_tail_ptr;
     if( head>=tail )
         return head-tail;
     else
-        return head-tail+size_of_rx_circular_buffer;
+        return head-tail+SERIAL_RX_BUFFER_SIZE;
 }
 
 char HAL_Serial_GetChar(HAL_Serial_Handler * hserial)
 {
     if(hserial->huart == 0)
         return 0;
-    uint8_t const * head = hserial->rx_circular_buffer + (size_of_rx_circular_buffer - __HAL_DMA_GET_COUNTER(hserial->huart->hdmarx)) % size_of_rx_circular_buffer;
+    uint8_t const * head = hserial->rx_circular_buffer + (SERIAL_RX_BUFFER_SIZE - __HAL_DMA_GET_COUNTER(hserial->huart->hdmarx)) % SERIAL_RX_BUFFER_SIZE;
     uint8_t const * tail = hserial->rx_tail_ptr;
     if(head!=tail)
     {
         char c =  *hserial->rx_tail_ptr++;
-        if(hserial->rx_tail_ptr>=hserial->rx_circular_buffer + size_of_rx_circular_buffer)
-            hserial->rx_tail_ptr-=size_of_rx_circular_buffer;
+        if(hserial->rx_tail_ptr>=hserial->rx_circular_buffer + SERIAL_RX_BUFFER_SIZE)
+            hserial->rx_tail_ptr-=SERIAL_RX_BUFFER_SIZE;
         return c;
     }
     else
@@ -138,15 +138,15 @@ int HAL_Serial_Read(HAL_Serial_Handler * hserial, uint8_t * ptr, int len )
 {
     if(hserial->huart == 0 || ptr == NULL || len <= 0)
         return 0;
-    uint8_t const * head = hserial->rx_circular_buffer + (size_of_rx_circular_buffer - __HAL_DMA_GET_COUNTER(hserial->huart->hdmarx)) % size_of_rx_circular_buffer;
+    uint8_t const * head = hserial->rx_circular_buffer + (SERIAL_RX_BUFFER_SIZE - __HAL_DMA_GET_COUNTER(hserial->huart->hdmarx)) % SERIAL_RX_BUFFER_SIZE;
     int counter = 0;
     while(counter!=len)
     {
         if(head==hserial->rx_tail_ptr)
             return counter;
         *ptr++=*hserial->rx_tail_ptr++;
-        if(hserial->rx_tail_ptr>=hserial->rx_circular_buffer + size_of_rx_circular_buffer)
-            hserial->rx_tail_ptr-=size_of_rx_circular_buffer;
+        if(hserial->rx_tail_ptr>=hserial->rx_circular_buffer + SERIAL_RX_BUFFER_SIZE)
+            hserial->rx_tail_ptr-=SERIAL_RX_BUFFER_SIZE;
         ++counter;
     }
     return counter;
@@ -188,10 +188,10 @@ static HAL_StatusTypeDef Serial_Tx_Start(HAL_Serial_Handler *hserial)
 int HAL_Serial_Write(HAL_Serial_Handler *hserial, uint8_t const *ptr, int len)
 {
     if (hserial == NULL || hserial->huart == NULL || ptr == NULL ||
-        len <= 0 || len > size_of_tx_buffer) return 0;
+        len <= 0 || len > SERIAL_TX_BUFFER_SIZE) return 0;
     uint32_t const primask = __get_PRIMASK();
     __disable_irq();
-    uint32_t const next = (hserial->tx_head_position + 1U) % size_of_tx_pool;
+    uint32_t const next = (hserial->tx_head_position + 1U) % SERIAL_TX_POOL_SIZE;
     if (next == hserial->tx_tail_position) {
         __set_PRIMASK(primask);
         return 0;
@@ -214,7 +214,7 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
         if (hserial->huart != huart || !hserial->tx_dma) continue;
         // Only the completion callback releases the buffer owned by DMA.
         hserial->tx_dma = 0;
-        hserial->tx_tail_position = (hserial->tx_tail_position + 1U) % size_of_tx_pool;
+        hserial->tx_tail_position = (hserial->tx_tail_position + 1U) % SERIAL_TX_POOL_SIZE;
         Serial_Tx_Start(hserial);
         break;
     }
@@ -224,11 +224,11 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 int HAL_Serial_Print(HAL_Serial_Handler *hserial, const char *fmt, ...)
 {
     if (fmt == NULL) return 0;
-    char buffer[size_of_tx_buffer + 1];
+    char buffer[SERIAL_TX_BUFFER_SIZE + 1];
     va_list arguments;
     va_start(arguments, fmt);
     int const length = vsnprintf(buffer, sizeof buffer, fmt, arguments);
     va_end(arguments);
-    if (length <= 0 || length > size_of_tx_buffer) return 0;
+    if (length <= 0 || length > SERIAL_TX_BUFFER_SIZE) return 0;
     return HAL_Serial_Write(hserial, (uint8_t const *)buffer, length);
 }

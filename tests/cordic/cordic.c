@@ -21,7 +21,7 @@ uint32_t LL_CORDIC_IsActiveFlag_RRDY(CORDIC_TypeDef *handle) { CHECK(handle == &
 uint32_t LL_CORDIC_ReadData(CORDIC_TypeDef *handle) { CHECK(handle == &accelerator); return ++reads == 1 ? 0x40000000U : 0x20000000U; }
 uint32_t HAL_GetTick(void) { return 1; }
 float positionSensor_getRadiansEstimation(uint16_t time) { (void)time; return 0; }
-float positionSensor_getVelocityDegree(void) { return 0; }
+float positionSensor_getVelocityDps(void) { return 0; }
 void pid_reset(pid_context_t *ctx) { (void)ctx; }
 float pi_process_antiwindup_clamp(pid_context_t *ctx, float e, float p, float i, float limit) { (void)ctx; (void)e; (void)p; (void)i; (void)limit; return 0; }
 void LL_FOC_coast(void) { }

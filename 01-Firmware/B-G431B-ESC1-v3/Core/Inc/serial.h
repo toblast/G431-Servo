@@ -12,25 +12,15 @@
 #include "stdbool.h"
 
 /* HAL Public Data ------------------------------------------------------------------*/
-/*
-#define size_of_tx_pool 16
-#define size_of_tx_buffer 1600
-#define size_of_rx_circular_buffer 16000
-*/
 
-#define size_of_tx_pool 32
-#define size_of_tx_buffer 256
-#define size_of_rx_circular_buffer 2048
+#define SERIAL_TX_POOL_SIZE 32
+#define SERIAL_TX_BUFFER_SIZE 256
+#define SERIAL_RX_BUFFER_SIZE 2048
 
-/*
-#define size_of_tx_pool 32
-#define size_of_tx_buffer 1600
-#define size_of_rx_circular_buffer 32000
-*/
 
 typedef struct
 {
-	uint8_t data[size_of_tx_buffer];
+	uint8_t data[SERIAL_TX_BUFFER_SIZE];
 	uint32_t length;
 } tx_buffer;
 
@@ -38,13 +28,13 @@ typedef struct
 {
     UART_HandleTypeDef * huart;
 
-    tx_buffer tx_buffer_pool[size_of_tx_pool];
+    tx_buffer tx_buffer_pool[SERIAL_TX_POOL_SIZE];
     volatile uint32_t tx_head_position;
     volatile uint32_t tx_tail_position; // Includes the slot currently owned by DMA.
     volatile uint32_t tx_dma;
     volatile HAL_StatusTypeDef tx_error; // Latched DMA-start/runtime error; reset by Init.
 
-    uint8_t rx_circular_buffer[size_of_rx_circular_buffer];
+    uint8_t rx_circular_buffer[SERIAL_RX_BUFFER_SIZE];
     uint8_t const * rx_tail_ptr;
 
     // for half duplex serial, DIR TX and RX signals

@@ -89,7 +89,7 @@ static pid_context_t torque_pi;
 // FOC current sense
 static float motor_current_mA[3] = {0.0f,0.0f,0.0f};
 static float motor_current_input_adc_offset[3] = {2464.0f,2482.0f,2485.0f};
-static float const motor_current_input_adc_KmA = -29.41f; // V/mA // note : the (-) sign here
+static float const motor_current_input_adc_KmA = -29.41f; // mA per ADC count; negative shunt polarity
 // process phase current
 // Note : when current flows inward phase, shunt voltage is negative
 // Note : when current flows outward phase, shunt voltage is positive
@@ -376,7 +376,7 @@ int API_FOC_Calibrate()
     if (!FOC_Calibration_Wait(200)) goto done;
     positionSensor_update();
     if (hardware_fault_status() != 0 || calibration_cancelled) goto done;
-    float const mid_angle = positionSensor_getRadians();
+    float const mid_angle = positionSensor_getRadiansMultiturn();
 
     for (int i = 500; i >= 0; --i)
     {
@@ -386,7 +386,7 @@ int API_FOC_Calibrate()
     if (!FOC_Calibration_Wait(200)) goto done;
     positionSensor_update();
     if (hardware_fault_status() != 0 || calibration_cancelled) goto done;
-    float const end_angle = positionSensor_getRadians();
+    float const end_angle = positionSensor_getRadiansMultiturn();
     FOC_Calibration_Idle();
 
     float const delta_angle = mid_angle - end_angle;
@@ -408,7 +408,7 @@ int API_FOC_Calibrate()
     positionSensor_update();
     if (hardware_fault_status() != 0 || calibration_cancelled) goto done;
     float const reverse = regs[REG_INV_PHASE_MOTOR] == 0 ? 1.0f : -1.0f;
-    float const offset = normalize_angle(-positionSensor_getRadians() * pole_pairs * reverse);
+    float const offset = normalize_angle(-positionSensor_getRadiansMultiturn() * pole_pairs * reverse);
     regs[REG_MOTOR_SYNCHRO_L] = LOW_BYTE((int)RADIANS_TO_DEGREES(offset));
     regs[REG_MOTOR_SYNCHRO_H] = HIGH_BYTE((int)RADIANS_TO_DEGREES(offset));
     FOC_Calibration_Idle();
@@ -547,8 +547,8 @@ void API_FOC_Torque_Update()
 #define INDUCTANCE 0.100
 
 			float const Ke = 8.3f/105.0f;
-			Vqs += DEGREES_TO_RADIANS(fabsf(positionSensor_getVelocityDegree()))*INDUCTANCE*present_Ids_mA/1000.0f;
-			Vds -= DEGREES_TO_RADIANS(fabsf(positionSensor_getVelocityDegree()))*(INDUCTANCE*present_Iqs_mA/1000.0f+Ke);
+			Vqs += DEGREES_TO_RADIANS(fabsf(positionSensor_getVelocityDps()))*INDUCTANCE*present_Ids_mA/1000.0f;
+			Vds -= DEGREES_TO_RADIANS(fabsf(positionSensor_getVelocityDps()))*(INDUCTANCE*present_Iqs_mA/1000.0f+Ke);
 */
 
 
@@ -563,7 +563,7 @@ void API_FOC_Torque_Update()
 			}
 
 			// fail-safe over-speed
-			if(fabsf(positionSensor_getVelocityDegree())>reg_max_velocity_dps)
+			if(fabsf(positionSensor_getVelocityDps())>reg_max_velocity_dps)
 			{
 				//
 				pid_reset(&flux_pi);

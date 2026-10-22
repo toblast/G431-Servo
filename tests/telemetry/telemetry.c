@@ -11,8 +11,8 @@ void (*test_irq_restored)(void);
 static float position, velocity, torque, flux, voltage, temperature, processing_time, processing_frequency;
 static float setpoint_position_deg, setpoint_velocity_dps, setpoint_torque_current_mA, setpoint_flux_current_mA;
 static uint32_t pid_counter, mlp_counter, tick;
-float positionSensor_getDegreeMultiturn(void) { return position; }
-float positionSensor_getVelocityDegree(void) { return velocity; }
+float positionSensor_getDegreesMultiturn(void) { return position; }
+float positionSensor_getVelocityDps(void) { return velocity; }
 float API_FOC_Get_Present_Torque_Current(void) { return torque; }
 float API_FOC_Get_Present_Flux_Current(void) { return flux; }
 float API_FOC_Get_Present_Voltage(void) { return voltage; }

@@ -143,27 +143,17 @@ void positionSensor_update(void){
     __set_PRIMASK(primask);
 }
 
-float positionSensor_getRadians(void)
-{
-    return sensor->initialized ? sensor->angle_rad : 0.0f;
-}
-
 float positionSensor_getRadiansMultiturn(void)
 {
     return sensor->initialized ? sensor->angle_rad : 0.0f;
 }
 
-float positionSensor_getDegree(void)
+float positionSensor_getDegreesMultiturn(void)
 {
     return sensor->initialized ? sensor->angle_deg : 0.0f;
 }
 
-float positionSensor_getDegreeMultiturn(void)
-{
-    return sensor->initialized ? sensor->angle_deg : 0.0f;
-}
-
-float positionSensor_getVelocityDegree(void)
+float positionSensor_getVelocityDps(void)
 {
     return sensor->initialized ? sensor->velocity_deg : 0.0f;
 }

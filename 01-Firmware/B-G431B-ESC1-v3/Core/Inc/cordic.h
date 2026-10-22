@@ -36,9 +36,10 @@ inline int32_t RadiansToQ31(float x)
   return (int32_t)(((mod >= 0.5f) ? (mod - 1.0f) : mod) * 4294967296.0f);
 }
 
-float Q31ToRadians(int32_t) __attribute__((always_inline));
+// Convert a unitless Q1.31 sine/cosine result to float.
+float Q31ToFloat(int32_t) __attribute__((always_inline));
 
-inline float Q31ToRadians(int32_t x)
+inline float Q31ToFloat(int32_t x)
 {
   return (float)(x)/2147483648.0f;
 }
@@ -75,8 +76,8 @@ inline HAL_StatusTypeDef API_CORDIC_Processor_Update(float theta_rad, float * c,
 		{
 			int32_t const cosine = (int32_t)LL_CORDIC_ReadData(hcordic.Instance);
 			int32_t const sine = (int32_t)LL_CORDIC_ReadData(hcordic.Instance);
-			*c = Q31ToRadians(cosine);
-			*s = Q31ToRadians(sine);
+			*c = Q31ToFloat(cosine);
+			*s = Q31ToFloat(sine);
 			hcordic.State = HAL_CORDIC_STATE_READY;
 			return HAL_OK;
 		}

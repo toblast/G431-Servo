@@ -43,7 +43,7 @@ void API_FOC_Set_Torque_Flux_Currents_mA(float torque, float flux) {
 int positionSensor_isReady(void) { return sensor_ready; }
 bool API_FOC_Is_Calibrating(void) { return mock_calibrating; }
 bool control_configuration_valid(void) { return mock_configuration_valid; }
-float positionSensor_getDegreeMultiturn(void) { return mock_position_deg; }
+float positionSensor_getDegreesMultiturn(void) { return mock_position_deg; }
 uint32_t HAL_GetTick(void) { return mock_tick; }
 uint32_t API_FOC_Get_Timestamp_ms(void) {
     if (test_primask != 1) ++failures;

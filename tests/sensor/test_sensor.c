@@ -167,12 +167,12 @@ static void test_initial_sample_has_zero_velocity(void)
 {
     fixture(3072, 1000);
     CHECK(positionSensor_init() == 1);
-    CHECK(close_to(positionSensor_getDegreeMultiturn(), 270.0f, 0.01f));
-    CHECK(close_to(positionSensor_getVelocityDegree(), 0.0f, 0.01f));
+    CHECK(close_to(positionSensor_getDegreesMultiturn(), 270.0f, 0.01f));
+    CHECK(close_to(positionSensor_getVelocityDps(), 0.0f, 0.01f));
     htim6.counter = 1250;
     positionSensor_update();
-    CHECK(close_to(positionSensor_getDegreeMultiturn(), 270.0f, 0.01f));
-    CHECK(close_to(positionSensor_getVelocityDegree(), 0.0f, 0.01f));
+    CHECK(close_to(positionSensor_getDegreesMultiturn(), 270.0f, 0.01f));
+    CHECK(close_to(positionSensor_getVelocityDps(), 0.0f, 0.01f));
 }
 
 static void test_failed_runtime_sample_preserves_state(void)
@@ -183,7 +183,7 @@ static void test_failed_runtime_sample_preserves_state(void)
     set_angle(4094);
     positionSensor_update();
     const float previous_angle = positionSensor_getRadiansMultiturn();
-    const float previous_velocity = positionSensor_getVelocityDegree();
+    const float previous_velocity = positionSensor_getVelocityDps();
 
     htim6.counter = 1500;
     set_angle(2); /* failure must not count this as crossing the turn boundary */
@@ -191,7 +191,7 @@ static void test_failed_runtime_sample_preserves_state(void)
     partial_read = 1;
     positionSensor_update();
     CHECK(positionSensor_getRadiansMultiturn() == previous_angle);
-    CHECK(positionSensor_getVelocityDegree() == previous_velocity);
+    CHECK(positionSensor_getVelocityDps() == previous_velocity);
     CHECK(regs[REG_HARDWARE_ERROR_STATUS] & (1U << HW_ERROR_BIT_POSITION_SENSOR_STATUS_ERROR));
 
     /* 1250+1201 proves the rejected acquisition did not renew freshness. */
@@ -202,7 +202,7 @@ static void test_failed_runtime_sample_preserves_state(void)
     htim6.counter = 1750;
     set_angle(4);
     positionSensor_update();
-    CHECK(close_to(positionSensor_getDegreeMultiturn(), 360.3515625f, 0.01f));
+    CHECK(close_to(positionSensor_getDegreesMultiturn(), 360.3515625f, 0.01f));
     CHECK(regs[REG_HARDWARE_ERROR_STATUS] & (1U << HW_ERROR_BIT_POSITION_SENSOR_STATUS_ERROR));
 }
 
@@ -214,8 +214,8 @@ static void test_equal_timestamps_do_not_make_stale_or_infinite_velocity(void)
     CHECK(!(regs[REG_HARDWARE_ERROR_STATUS] & (1U << HW_ERROR_BIT_POSITION_SENSOR_NOT_RESPONDING)));
     set_angle(1025);
     positionSensor_update();
-    CHECK(isfinite(positionSensor_getVelocityDegree()));
-    CHECK(close_to(positionSensor_getVelocityDegree(), 0.0f, 0.01f));
+    CHECK(isfinite(positionSensor_getVelocityDps()));
+    CHECK(close_to(positionSensor_getVelocityDps(), 0.0f, 0.01f));
 }
 
 static void test_wraparound_uses_modular_elapsed_time(void)
@@ -225,7 +225,7 @@ static void test_wraparound_uses_modular_elapsed_time(void)
     htim6.counter = 0;
     set_angle(1025);
     positionSensor_update();
-    CHECK(close_to(positionSensor_getVelocityDegree(), 87890.625f, 10.0f));
+    CHECK(close_to(positionSensor_getVelocityDps(), 87890.625f, 10.0f));
     CHECK(isfinite(positionSensor_getRadiansEstimation(0)));
     CHECK(!(regs[REG_HARDWARE_ERROR_STATUS] & (1U << HW_ERROR_BIT_POSITION_SENSOR_NOT_RESPONDING)));
 }
@@ -242,7 +242,7 @@ static void test_velocity_includes_acquisition_duration(void)
     positionSensor_update();
     const uint16_t elapsed_us = (uint16_t)(htim6.counter - previous_completion);
     const float expected_dps = (3.0f * 360.0f / 4096.0f) * 1000000.0f / elapsed_us;
-    CHECK(close_to(positionSensor_getVelocityDegree(), expected_dps, 0.5f));
+    CHECK(close_to(positionSensor_getVelocityDps(), expected_dps, 0.5f));
 }
 
 static void test_runtime_magnet_failure_preserves_sample(void)
@@ -252,14 +252,14 @@ static void test_runtime_magnet_failure_preserves_sample(void)
         fixture(1024, 1000);
         CHECK(positionSensor_init() == 1);
         const float angle = positionSensor_getRadiansMultiturn();
-        const float velocity = positionSensor_getVelocityDegree();
+        const float velocity = positionSensor_getVelocityDps();
         htim6.counter = 1250;
         set_angle(2048);
         bus[0x0b] = invalid_status[i];
         if (i == 3) failed_read_reg = 0x0b;
         positionSensor_update();
         CHECK(positionSensor_getRadiansMultiturn() == angle);
-        CHECK(positionSensor_getVelocityDegree() == velocity);
+        CHECK(positionSensor_getVelocityDps() == velocity);
         CHECK(regs[REG_HARDWARE_ERROR_STATUS] & (1U << HW_ERROR_BIT_POSITION_SENSOR_STATUS_ERROR));
         CHECK(sensor->lastUpdate == 1000);
     }
@@ -269,8 +269,8 @@ static void observe_published_sample(void)
 {
     ++observed_samples;
     CHECK(test_primask == 0);
-    CHECK(close_to(positionSensor_getDegreeMultiturn(), 90.087890625f, 0.01f));
-    CHECK(close_to(positionSensor_getVelocityDegree(), 351.5625f, 0.5f));
+    CHECK(close_to(positionSensor_getDegreesMultiturn(), 90.087890625f, 0.01f));
+    CHECK(close_to(positionSensor_getVelocityDps(), 351.5625f, 0.5f));
     CHECK(sensor->lastUpdate == 1250);
     CHECK(sensor->angle_prev_rad == sensor->angle_rad);
 }
@@ -286,7 +286,7 @@ static void test_publication_restores_interrupt_mask(void)
     test_irq_restored = NULL;
     CHECK(observed_samples == 1);
     CHECK(test_primask == 0);
-    CHECK(close_to(positionSensor_getDegreeMultiturn(), 90.087890625f, 0.01f));
+    CHECK(close_to(positionSensor_getDegreesMultiturn(), 90.087890625f, 0.01f));
 }
 
 static int selected(const char *group, const char *name)

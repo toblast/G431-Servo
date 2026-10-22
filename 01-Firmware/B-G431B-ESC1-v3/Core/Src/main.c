@@ -46,8 +46,7 @@
 /* USER CODE BEGIN PD */
 
 // CAN Bus termination
-#define CAN_BUS_TERMINATION_OFF
-#define CAN_BUS_TERMINATION_ON
+#define CAN_BUS_TERMINATION_ENABLED 1
 
 // AS5600 over I2C is the only encoder supported by this variant.
 
@@ -168,7 +167,7 @@ static void FDCAN_Config(void)
   }
 
   HAL_GPIO_WritePin(CAN_SHDN_GPIO_Port, CAN_SHDN_Pin, GPIO_PIN_RESET);
-#ifdef CAN_BUS_TERMINATION_ON
+#if CAN_BUS_TERMINATION_ENABLED
   HAL_GPIO_WritePin(CAN_TERM_GPIO_Port, CAN_TERM_Pin, GPIO_PIN_SET); // SET means activating R120 for CAN bus termination
 #else
   HAL_GPIO_WritePin(CAN_TERM_GPIO_Port, CAN_TERM_Pin, GPIO_PIN_RESET); // RESET means no bus termination
@@ -321,7 +320,7 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
       }
       if (!can_armed)
       {
-        float const present_position = positionSensor_getDegreeMultiturn();
+        float const present_position = positionSensor_getDegreesMultiturn();
         int16_t const minimum = (int16_t)MAKE_SHORT(regs[REG_MIN_POSITION_DEG_L], regs[REG_MIN_POSITION_DEG_H]);
         int16_t const maximum = (int16_t)MAKE_SHORT(regs[REG_MAX_POSITION_DEG_L], regs[REG_MAX_POSITION_DEG_H]);
         if (!isfinite(present_position) || present_position < minimum || present_position > maximum)
@@ -484,7 +483,7 @@ int main(void)
 					setpoint_velocity_dps = 0.0f;
 					error_velocity_dps = 0.0f;
 					// set setpoint_position_deg to avoid glitch
-					setpoint_position_deg = positionSensor_getDegreeMultiturn();
+					setpoint_position_deg = positionSensor_getDegreesMultiturn();
 					// pid reset
 					pid_reset(&pd_position);
 				}
@@ -503,12 +502,12 @@ int main(void)
 				// compute torque feed forward
 				float const torque_feed_forward_ma = command.torque_mA;
 				// compute torque setpoint
-				float const error_position_deg = setpoint_position_deg-positionSensor_getDegreeMultiturn();
+				float const error_position_deg = setpoint_position_deg-positionSensor_getDegreesMultiturn();
 				float const pos_kp = (float)command.pos_kp*2.0f;
 				float const pos_kd = (float)command.pos_kd*100.0f*2.0f;
 				float const reg_max_current_ma = (uint16_t)(MAKE_SHORT(regs[REG_MAX_CURRENT_MA_L],regs[REG_MAX_CURRENT_MA_H]));
 				float const vel_kp = (float)command.vel_kp/10.0f;
-				error_velocity_dps = ALPHA_VELOCITY*(setpoint_velocity_dps-positionSensor_getVelocityDegree())+(1.0f-ALPHA_VELOCITY)*error_velocity_dps;
+				error_velocity_dps = ALPHA_VELOCITY*(setpoint_velocity_dps-positionSensor_getVelocityDps())+(1.0f-ALPHA_VELOCITY)*error_velocity_dps;
 				float const reg_reverse = regs[REG_INV_PHASE_MOTOR] == 0 ? 1.0f : -1.0f;
 				setpoint_torque_current_mA = reg_reverse*pid_process_antiwindup_clamp_with_ff(
 						&pd_position,
@@ -558,13 +557,13 @@ int main(void)
 			// RAM Update
 			uint32_t const telemetry_primask = __get_PRIMASK();
 			__disable_irq();
-			telemetry_store_i16(regs, REG_PRESENT_POSITION_DEG_L, positionSensor_getDegreeMultiturn()*10.0f);
-			telemetry_store_i16(regs, REG_PRESENT_VELOCITY_DPS_L, positionSensor_getVelocityDegree()*1.0f);
+			telemetry_store_i16(regs, REG_PRESENT_POSITION_DEG_L, positionSensor_getDegreesMultiturn()*10.0f);
+			telemetry_store_i16(regs, REG_PRESENT_VELOCITY_DPS_L, positionSensor_getVelocityDps()*1.0f);
 			telemetry_store_i16(regs, REG_PRESENT_TORQUE_CURRENT_MA_L, API_FOC_Get_Present_Torque_Current()*1.0f);
 			telemetry_store_i16(regs, REG_PRESENT_FLUX_CURRENT_MA_L, API_FOC_Get_Present_Flux_Current()*1.0f);
 			regs[REG_PRESENT_VOLTAGE] = telemetry_u8(API_FOC_Get_Present_Voltage());
 			regs[REG_PRESENT_TEMPERATURE] = telemetry_u8(API_FOC_Get_Present_Temp());
-			regs[REG_MOVING] = fabsf(positionSensor_getVelocityDegree()) > (float)regs[REG_MOVING_THRESHOLD_DPS] ? 1 : 0;
+			regs[REG_MOVING] = fabsf(positionSensor_getVelocityDps()) > (float)regs[REG_MOVING_THRESHOLD_DPS] ? 1 : 0;
 			__set_PRIMASK(telemetry_primask);
 
 			// DEBUG RAM Update
@@ -636,7 +635,7 @@ int main(void)
 		if(((++counter)%100)==0)
 		{
 //			HAL_Serial_Print(&serial,"%d %d\n",
-//						//(int)(RADIANS_TO_DEGREES(positionSensor_getRadians())*10.0f),
+//						//(int)(RADIANS_TO_DEGREES(positionSensor_getRadiansMultiturn())*10.0f),
 //						(int)(init_error_data_bits),
 //						(int)(RADIANS_TO_DEGREES(present_position_rad)*10.0f)
 //						//(int)(RADIANS_TO_DEGREES(expected_position)*10.0f)
