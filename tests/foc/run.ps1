@@ -35,3 +35,16 @@ $outputsExe = Join-Path $buildDirectory 'outputs.exe'
 if ($LASTEXITCODE -ne 0) { throw 'FOC output compilation failed.' }
 & $outputsExe
 if ($LASTEXITCODE -ne 0) { throw 'FOC output regression failed.' }
+$acquisitionStart = $source.IndexOf('// FOC current sense')
+$acquisitionEnd = $source.IndexOf('// FOC performance monitoring', $acquisitionStart)
+$acquisitionFunction = [regex]::Match($source, '(?s)void API_FOC_It\(ADC_HandleTypeDef \*hadc\)\r?\n\{.*\z').Value
+if ($acquisitionStart -lt 0 -or $acquisitionEnd -lt 0 -or !$acquisitionFunction) { throw 'Missing production acquisition code.' }
+$acquisitionFixture = Get-Content (Join-Path $PSScriptRoot 'acquisition.c') -Raw
+$acquisitionSource = $acquisitionFixture.Replace('/* ACQUISITION_GLOBALS */', $source.Substring($acquisitionStart, $acquisitionEnd - $acquisitionStart)).Replace('/* ACQUISITION_FUNCTION */', $acquisitionFunction)
+$acquisitionPath = Join-Path $buildDirectory 'acquisition.c'
+$acquisitionExe = Join-Path $buildDirectory 'acquisition.exe'
+[IO.File]::WriteAllText($acquisitionPath, $acquisitionSource)
+& $compilerCommand.Source -std=gnu99 -Wall -Wextra -Wno-unused-variable -I (Join-Path $PSScriptRoot 'mocks') -I (Join-Path $firmwareRoot 'Core/Inc') $acquisitionPath -o $acquisitionExe -lm
+if ($LASTEXITCODE -ne 0) { throw 'ADC acquisition compilation failed.' }
+& $acquisitionExe
+if ($LASTEXITCODE -ne 0) { throw 'ADC acquisition regression failed.' }

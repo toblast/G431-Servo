@@ -97,7 +97,8 @@ static float const motor_current_input_adc_KmA = -29.41f; // V/mA // note : the 
 // Note : The current sign is negative when flowing out from a phase
 
 // FOC analog measure
-static int32_t current_samples = 0;
+// One ADC1 sample and one ADC2 pair are required in the same PWM half-cycle.
+static uint8_t current_sample_mask = 0;
 volatile uint16_t ADC1_DMA[5] = { 0,0,0,0,0 }; 	// Dummy conversion (ST workaround for -x),
 volatile uint16_t ADC2_DMA[3] = { 0,0,0 }; 		// Dummy conversion (ST workaround for -x)
 static float motor_current_input_adc[3] = {0.0f,0.0f,0.0f};
@@ -659,14 +660,28 @@ static inline __attribute__((always_inline)) void FOC_Check_Current_Protection(v
 
 void API_FOC_It(ADC_HandleTypeDef *hadc)
 {
+	if (hadc != &hadc1 && hadc != &hadc2) return;
+	bool const sampling_half_cycle = __HAL_TIM_IS_TIM_COUNTING_DOWN(&htim1);
+	uint8_t const sample_bit = hadc == &hadc1 ? 1U : 2U;
+	if ((!sampling_half_cycle && current_sample_mask != 0 && foc_state != FOC_STATE_IDLE) ||
+		(sampling_half_cycle && (current_sample_mask & sample_bit) != 0))
+	{
+		hardware_fault_set(1U << HW_ERROR_BIT_INTERNAL);
+		API_FOC_Torque_Disable();
+		current_sample_mask = 0;
+		return;
+	}
+	// The offset half-cycle separates acquisition cycles. Incomplete startup
+	// pairs are discarded while IDLE; the existing FOC watchdog checks liveness.
+	if (!sampling_half_cycle) current_sample_mask = 0;
 	if(hadc==&hadc1)
 	{
-		if(__HAL_TIM_IS_TIM_COUNTING_DOWN(&htim1))
+		if(sampling_half_cycle)
 		{
 			// phase current
 			motor_current_input_adc[0] = ADC1_DMA[1];
 			motor_current_mA[0]= ((float)motor_current_input_adc[0]-motor_current_input_adc_offset[0])*motor_current_input_adc_KmA;
-			++current_samples;
+			current_sample_mask |= sample_bit;
 			// aux
 			potentiometer_input_adc = ADC1_DMA[2];
 			vbus_input_adc = ADC1_DMA[3];
@@ -679,14 +694,14 @@ void API_FOC_It(ADC_HandleTypeDef *hadc)
 	}
 	if(hadc==&hadc2)
 	{
-		if(__HAL_TIM_IS_TIM_COUNTING_DOWN(&htim1))
+		if(sampling_half_cycle)
 		{
 			// phase current
 			motor_current_input_adc[1] = ADC2_DMA[1];
 			motor_current_input_adc[2] = ADC2_DMA[2];
 			motor_current_mA[1]= ((float)motor_current_input_adc[1]-motor_current_input_adc_offset[1])*motor_current_input_adc_KmA;
 			motor_current_mA[2]= ((float)motor_current_input_adc[2]-motor_current_input_adc_offset[2])*motor_current_input_adc_KmA;
-			current_samples+=2;
+			current_sample_mask |= sample_bit;
 		}
 		else
 		{
@@ -694,10 +709,10 @@ void API_FOC_It(ADC_HandleTypeDef *hadc)
 			motor_current_input_adc_offset[2] = ALPHA_CURRENT_SENSE_OFFSET*(float)(ADC2_DMA[2]) + (1.0f-ALPHA_CURRENT_SENSE_OFFSET)*motor_current_input_adc_offset[2];
 		}
 	}
-	// once the 3 phase current are acquired, call for FOC
-	if(current_samples>=3)
+	// Run only after both converters supplied fresh data in this half-cycle.
+	if(current_sample_mask == 3U)
 	{
-		current_samples=0;
+		current_sample_mask=0;
 		FOC_Check_Current_Protection();
 		API_FOC_Torque_Update();
 	}
