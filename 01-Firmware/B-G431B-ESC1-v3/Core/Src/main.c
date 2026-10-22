@@ -32,6 +32,7 @@
 #include "protocol.h"
 #include "control_table.h"
 #include "binary_tool.h"
+#include "telemetry.h"
 #include <string.h>
 
 /* USER CODE END Includes */
@@ -557,33 +558,26 @@ int main(void)
 			// RAM Update
 			uint32_t const telemetry_primask = __get_PRIMASK();
 			__disable_irq();
-			regs[REG_PRESENT_POSITION_DEG_L] = LOW_BYTE((int16_t)(positionSensor_getDegreeMultiturn()*10.0f));
-			regs[REG_PRESENT_POSITION_DEG_H] = HIGH_BYTE((int16_t)(positionSensor_getDegreeMultiturn()*10.0f));
-			regs[REG_PRESENT_VELOCITY_DPS_L] = LOW_BYTE((int16_t)(positionSensor_getVelocityDegree()*1.0f));
-			regs[REG_PRESENT_VELOCITY_DPS_H] = HIGH_BYTE((int16_t)(positionSensor_getVelocityDegree()*1.0f));
-			regs[REG_PRESENT_TORQUE_CURRENT_MA_L] = LOW_BYTE((int16_t)(API_FOC_Get_Present_Torque_Current()*1.0f));
-			regs[REG_PRESENT_TORQUE_CURRENT_MA_H] = HIGH_BYTE((int16_t)(API_FOC_Get_Present_Torque_Current()*1.0f));
-			regs[REG_PRESENT_FLUX_CURRENT_MA_L] = LOW_BYTE((int16_t)(API_FOC_Get_Present_Flux_Current()*1.0f));
-			regs[REG_PRESENT_FLUX_CURRENT_MA_H] = HIGH_BYTE((int16_t)(API_FOC_Get_Present_Flux_Current()*1.0f));
-			regs[REG_PRESENT_VOLTAGE] = (uint16_t)(API_FOC_Get_Present_Voltage());
-			regs[REG_PRESENT_TEMPERATURE] = (uint16_t)(API_FOC_Get_Present_Temp());
-			regs[REG_MOVING] = (uint16_t)(fabsf(positionSensor_getVelocityDegree())) > (uint16_t)(regs[REG_MOVING_THRESHOLD_DPS]) ? 1 : 0;
+			telemetry_store_i16(regs, REG_PRESENT_POSITION_DEG_L, positionSensor_getDegreeMultiturn()*10.0f);
+			telemetry_store_i16(regs, REG_PRESENT_VELOCITY_DPS_L, positionSensor_getVelocityDegree()*1.0f);
+			telemetry_store_i16(regs, REG_PRESENT_TORQUE_CURRENT_MA_L, API_FOC_Get_Present_Torque_Current()*1.0f);
+			telemetry_store_i16(regs, REG_PRESENT_FLUX_CURRENT_MA_L, API_FOC_Get_Present_Flux_Current()*1.0f);
+			regs[REG_PRESENT_VOLTAGE] = telemetry_u8(API_FOC_Get_Present_Voltage());
+			regs[REG_PRESENT_TEMPERATURE] = telemetry_u8(API_FOC_Get_Present_Temp());
+			regs[REG_MOVING] = fabsf(positionSensor_getVelocityDegree()) > (float)regs[REG_MOVING_THRESHOLD_DPS] ? 1 : 0;
 			__set_PRIMASK(telemetry_primask);
 
 			// DEBUG RAM Update
-			regs[REG_SETPOINT_POSITION_DEG_L] = LOW_BYTE((int16_t)(setpoint_position_deg*10.0f));
-			regs[REG_SETPOINT_POSITION_DEG_H] = HIGH_BYTE((int16_t)(setpoint_position_deg*10.0f));
-			regs[REG_SETPOINT_VELOCITY_DPS_L] = LOW_BYTE((int16_t)(setpoint_velocity_dps*1.0f));
-			regs[REG_SETPOINT_VELOCITY_DPS_H] = HIGH_BYTE((int16_t)(setpoint_velocity_dps*1.0f));
-			regs[REG_SETPOINT_TORQUE_CURRENT_MA_L] = LOW_BYTE((int16_t)(setpoint_torque_current_mA*1.0f));
-			regs[REG_SETPOINT_TORQUE_CURRENT_MA_H] = HIGH_BYTE((int16_t)(setpoint_torque_current_mA*1.0f));
-			regs[REG_SETPOINT_FLUX_CURRENT_MA_L] = LOW_BYTE((int16_t)(setpoint_flux_current_mA*1.0f));
-			regs[REG_SETPOINT_FLUX_CURRENT_MA_H] = HIGH_BYTE((int16_t)(setpoint_flux_current_mA*1.0f));
+			telemetry_store_i16(regs, REG_SETPOINT_POSITION_DEG_L, setpoint_position_deg*10.0f);
+			telemetry_store_i16(regs, REG_SETPOINT_VELOCITY_DPS_L, setpoint_velocity_dps*1.0f);
+			telemetry_store_i16(regs, REG_SETPOINT_TORQUE_CURRENT_MA_L, setpoint_torque_current_mA*1.0f);
+			telemetry_store_i16(regs, REG_SETPOINT_FLUX_CURRENT_MA_L, setpoint_flux_current_mA*1.0f);
 			// test new FW
-			regs[REG_PROCESSING_TIME] = (uint8_t)(API_FOC_Get_Processing_Time());
-			regs[REG_FOC_FREQUENCY] = (uint8_t)(API_FOC_Get_Processing_Frequency()/1000.0f);
-			regs[REG_PID_FREQUENCY] = (uint8_t)((float)pid_counter/(float)HAL_GetTick());
-			regs[REG_MLP_FREQUENCY] = (uint8_t)((float)mlp_counter/(float)HAL_GetTick());
+			regs[REG_PROCESSING_TIME] = telemetry_u8(API_FOC_Get_Processing_Time());
+			regs[REG_FOC_FREQUENCY] = telemetry_u8(API_FOC_Get_Processing_Frequency()/1000.0f);
+			uint32_t const uptime_ms = HAL_GetTick();
+			regs[REG_PID_FREQUENCY] = uptime_ms != 0 ? telemetry_u8((float)pid_counter / (float)uptime_ms) : 0;
+			regs[REG_MLP_FREQUENCY] = uptime_ms != 0 ? telemetry_u8((float)mlp_counter / (float)uptime_ms) : 0;
 
 		} // low priority process 4Khz
 

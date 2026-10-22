@@ -651,7 +651,8 @@ float API_FOC_Get_Processing_Time()
 
 float API_FOC_Get_Processing_Frequency()
 {
-	return (float)foc_counter/(float)HAL_GetTick()*1000.0f;
+	uint32_t const uptime_ms = HAL_GetTick();
+	return uptime_ms != 0 ? (float)foc_counter / (float)uptime_ms * 1000.0f : 0.0f;
 }
 
 static inline __attribute__((always_inline)) void FOC_Check_Current_Protection(void)
