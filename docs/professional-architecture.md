@@ -1,7 +1,8 @@
-# First professional refactor: typed model and drive supervisor
+# Professional firmware architecture
 
-Branch `professional`, based on `simplified` at `8629fd6`. This increment changes
-ownership and interfaces while preserving the selected firmware's motor behavior.
+Branch `professional`, based on `simplified` at `8629fd6`. The first increment
+introduced the typed model and drive supervisor; the second extracts the outer
+servo controller. Both preserve the selected firmware's motor behavior.
 
 ## Current boundaries
 
@@ -10,16 +11,19 @@ ownership and interfaces while preserving the selected firmware's motor behavior
 | `drive_types.h` | HAL-independent `DriveConfig`, `ServoCommand`, command snapshot, measurements, state and status types; explicit units and existing gain scales |
 | `drive.c` / `drive.h` | Private owner of arming, accepted command, generation, timestamp, maintenance permission and measured-status snapshot; ARM/DISARM, watchdog service and guarded current publication |
 | `control_table.c` | Legacy serial/flash register adapter, pure parameter validation, typed configuration reads, command/status mirrors |
-| `main.c` | Generated peripheral setup, CAN framing, foreground scheduling, existing outer servo calculation and status collection |
+| `servo_controller.c` / `servo_controller.h` | Foreground-owned PD/filter history and arm-generation tracking; typed setpoint calculation and guarded publication through the drive supervisor |
+| `main.c` | Generated peripheral setup, CAN framing, foreground scheduling, sensor acquisition, controller invocation and diagnostic/status collection |
 | `foc.c` | Existing FOC modes, current regulation, current/ADC protection, immediate coast, shared FOC watchdog and blocking calibration trajectory |
 | `protocol.c` | Serial framing/register requests and persistence, acquiring/releasing maintenance through the supervisor |
 
 ```mermaid
 flowchart TD
     CAN[CAN callback / framing] -->|typed ServoCommand| Drive[Drive supervisor]
-    Drive -->|command snapshot and generation| Main[Foreground outer controller]
+    Drive -->|command snapshot and generation| Main[Foreground scheduler]
     Config[Register / configuration adapter] -->|typed DriveConfig| Main
-    Main -->|guarded Iq and Id publication| Drive
+    Main -->|command, config and motor sample| Servo[Outer servo controller]
+    Servo -->|guarded Iq and Id publication| Drive
+    Servo -->|diagnostic setpoints| Main
     Drive --> FOC[Existing FOC and PWM]
     Main -->|typed measurements| Drive
     Drive -->|command and status mirrors| Config
@@ -46,6 +50,15 @@ view, not a replacement for FOC's internal modes or a new CAN telemetry format.
   with zero gains/feed-forward. A duplicate ARM preserves the current command.
 - Current publication rechecks permission, faults, calibration and generation
   atomically. An older calculation cannot publish after DISARM/rearm.
+- `ServoController_Init` initializes one foreground-owned controller before the
+  first servo tick. `ServoController_Update` consumes typed command/configuration
+  snapshots and the caller's current motor-shaft position/velocity sample. It
+  performs no acquisition, scheduling, register access or direct FOC calls.
+- The controller resets PD/filter history on a new arm generation or after a
+  rejected publication. Duplicate ARM retains history. A disabled snapshot
+  returns zero diagnostic setpoints and rechecks live permission before any
+  disable, so it cannot disable a more recent ARM. Returned setpoints describe
+  the calculation, even if the supervisor rejects its publication.
 - Detected faults can coast immediately inside FOC. `Drive_Service` revokes
   application command permission on the following foreground pass. Clearing a
   recoverable fault does not automatically rearm.
@@ -67,10 +80,10 @@ The 8-byte command format, reserved ARM/DISARM messages, reply ID/layout, serial
 register addresses, single-page flash layout, parameter limits, 1000 ms CAN and
 10 ms FOC timeouts, encoder timing, PI/PD arithmetic, current limits, overspeed
 policy and calibration trajectory remain the baseline behavior. The derivative
-is still per sample and the velocity-field contribution is still zero.
+is still per sample and CAN commands still supply zero velocity gain.
 
-FOC and encoder internals still read some legacy registers. The outer controller
-and CAN framing still live in `main.c`. Calibration remains blocking. These are
+FOC and encoder internals still read some legacy registers. CAN framing and
+foreground scheduling still live in `main.c`. Calibration remains blocking. These are
 recorded later increments in the [roadmap](professional-roadmap.md), not hidden
 claims of a completed application-wide rewrite. The earlier illustrated guide
 shows the baseline integration; this document describes the new extraction.
@@ -85,10 +98,19 @@ entry, fault transitions and IRQ-mask preservation. No test includes or mutates
 the supervisor's private state. Telemetry tests also link the real register
 adapter. Existing FOC/calibration/sensor and serial regressions remain in place.
 
+The servo suite links production `servo_controller.c`, `drive.c`,
+`control_table.c`, `pic.c` and `math_tool.c` directly. Numerical expectations and
+public-interface sequences cover gain/unit scales, clamping, feed-forward,
+direction, per-sample derivative/velocity filters, zero integral gain, disabled
+outputs, duplicate ARM, rearm without a disabled tick, stale enabled/disabled
+snapshots and faults arriving after command capture. FOC/peripherals are mocked;
+tests do not include implementation source or modify private controller state.
+
 Validated on 2026-10-26:
 
-- All eleven host regression suites passed with native GCC 4.7.0, including
-  265 CAN/supervisor assertions with zero failures.
+- All twelve host regression suites passed with native GCC 4.7.0, including
+  265 CAN/supervisor assertions and 276 servo assertions at each of `-O0` and
+  `-O2`, with zero failures.
 - Fresh ARM GCC 14.3.1 builds passed at `-Og` and `-O2`. Both retain the
   existing linker warning about a load segment with RWX permissions.
 - Baseline comparison confirms no source changes to `foc.c`, `foc_utils.h`,

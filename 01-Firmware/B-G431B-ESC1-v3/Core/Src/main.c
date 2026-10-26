@@ -26,14 +26,14 @@
 #include "serial.h"
 #include "position_sensor.h"
 #include "foc.h"
-#include "pid.h"
-#include "math_tool.h"
+#include "servo_controller.h"
 #include "eeprom.h"
 #include "protocol.h"
 #include "control_table.h"
 #include "binary_tool.h"
 #include "telemetry.h"
 #include "drive.h"
+#include <math.h>
 #include <string.h>
 
 /* USER CODE END Includes */
@@ -60,9 +60,6 @@
 //  normal setting is 10000us (100Hz)
 #define SERVICE_LOOP_PERIOD 10000
 
-
-// Advanced settings (do not change)
-#define ALPHA_VELOCITY				0.24f // (default:0.24) F = 1000Hz ==> Fc (-3dB) = 20Hz
 
 /* USER CODE END PD */
 
@@ -324,21 +321,14 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  bool torque_was_enable = false;
-  uint32_t applied_arm_generation = 0;
+  ServoController_Init();
   // A button held at power-up must be released before it can request motion.
   bool calibration_button_was_down = true;
 	uint16_t present_time_us = __HAL_TIM_GET_COUNTER(&htim6);
 	uint16_t pid_last_time_us = present_time_us;
 	uint16_t service_last_time_us = present_time_us;
-	float setpoint_position_deg = 0.0f;
-	float setpoint_velocity_dps = 0.0f;
-	float setpoint_torque_current_mA = 0.0f;
-	float setpoint_flux_current_mA = 0.0f;
-	float error_velocity_dps = 0.0f;
 	uint32_t pid_counter = 0;
 	uint32_t mlp_counter = 0;
-	pid_context_t pd_position;
 	while (1)
 	{
     /* USER CODE END WHILE */
@@ -360,84 +350,8 @@ int main(void)
 			DriveCommandSnapshot const command = Drive_Get_Command();
 			DriveConfig const config = control_read_config();
 
-			if(command.enabled)
-			{
-				bool const new_arm = !torque_was_enable || applied_arm_generation != command.generation;
-				// transition from torque disable to enable
-				if(new_arm)
-				{
-					// ARM initialized goals; preserve commands already accepted after ARM.
-					// reset setpoints
-					setpoint_position_deg = 0.0f;
-					setpoint_velocity_dps = 0.0f;
-					error_velocity_dps = 0.0f;
-					// set setpoint_position_deg to avoid glitch
-					setpoint_position_deg = positionSensor_getDegreesMultiturn();
-					// pid reset
-					pid_reset(&pd_position);
-				}
-
-
-
-				// compute position set-point from goal and EEPROM position limits
-				float const goal_position_deg = (float)command.goal.position_tenths_deg / 10.0f;
-				float const reg_min_position_deg = (float)config.min_position_deg;
-				float const reg_max_position_deg = (float)config.max_position_deg;
-				setpoint_position_deg = fconstrain(goal_position_deg,reg_min_position_deg,reg_max_position_deg);
-				// compute velocity setpoint from goal and EEPROM velocity limit
-				float const goal_velocity_dps = command.goal.velocity_dps;
-				float const reg_max_velocity_dps = config.max_velocity_dps;
-				setpoint_velocity_dps = fconstrain(goal_velocity_dps,-reg_max_velocity_dps,reg_max_velocity_dps);
-				// compute torque feed forward
-				float const torque_feed_forward_ma = command.goal.torque_mA;
-				// compute torque setpoint
-				float const error_position_deg = setpoint_position_deg-positionSensor_getDegreesMultiturn();
-				float const pos_kp = (float)command.goal.pos_kp*2.0f;
-				float const pos_kd = (float)command.goal.pos_kd*100.0f*2.0f;
-				float const reg_max_current_ma = config.max_current_mA;
-				float const vel_kp = (float)command.goal.vel_kp/10.0f;
-				error_velocity_dps = ALPHA_VELOCITY*(setpoint_velocity_dps-positionSensor_getVelocityDps())+(1.0f-ALPHA_VELOCITY)*error_velocity_dps;
-				float const reg_reverse = config.invert_phase_motor == 0 ? 1.0f : -1.0f;
-				setpoint_torque_current_mA = reg_reverse*pid_process_antiwindup_clamp_with_ff(
-						&pd_position,
-						error_position_deg,
-						pos_kp,
-						0.0f,
-						pos_kd,
-						reg_max_current_ma,
-						0.1f,
-						vel_kp*error_velocity_dps+torque_feed_forward_ma
-				);
-				//setpoint_torque_current_mA=(potentiometer_input_adc/4096)*3000.0f; // DEBUG
-				// set flux
-				float const goal_flux_current_mA = command.goal.flux_mA;
-				setpoint_flux_current_mA = goal_flux_current_mA;
-
-				// update FOC parameters
-				torque_was_enable = Drive_Publish_Currents(&command, new_arm,
-						setpoint_torque_current_mA, setpoint_flux_current_mA);
-				if (torque_was_enable) applied_arm_generation = command.generation;
-
-			}
-			else // torque disable
-			{
-				// transition from enable to disable
-				if(torque_was_enable)
-				{
-					torque_was_enable = false;
-					Drive_Disable_If_Disarmed();
-				}
-
-				// Drive_Disarm owns command reset; do not erase a newly received ARM.
-
-				// reset all setpoints
-				setpoint_position_deg = 0.0f;
-				setpoint_velocity_dps = 0.0f;
-				error_velocity_dps = 0.0f;
-
-				setpoint_torque_current_mA = 0.0f;
-				setpoint_flux_current_mA = 0.0f;
-			}
+			ServoSetpoints const setpoints = ServoController_Update(&command, &config,
+					positionSensor_getDegreesMultiturn(), positionSensor_getVelocityDps());
 
 			// RAM Update
 			uint32_t const telemetry_primask = __get_PRIMASK();
@@ -455,10 +369,10 @@ int main(void)
 			__set_PRIMASK(telemetry_primask);
 
 			// DEBUG RAM Update
-			telemetry_store_i16(regs, REG_SETPOINT_POSITION_DEG_L, setpoint_position_deg*10.0f);
-			telemetry_store_i16(regs, REG_SETPOINT_VELOCITY_DPS_L, setpoint_velocity_dps*1.0f);
-			telemetry_store_i16(regs, REG_SETPOINT_TORQUE_CURRENT_MA_L, setpoint_torque_current_mA*1.0f);
-			telemetry_store_i16(regs, REG_SETPOINT_FLUX_CURRENT_MA_L, setpoint_flux_current_mA*1.0f);
+			telemetry_store_i16(regs, REG_SETPOINT_POSITION_DEG_L, setpoints.position_deg*10.0f);
+			telemetry_store_i16(regs, REG_SETPOINT_VELOCITY_DPS_L, setpoints.velocity_dps*1.0f);
+			telemetry_store_i16(regs, REG_SETPOINT_TORQUE_CURRENT_MA_L, setpoints.torque_mA*1.0f);
+			telemetry_store_i16(regs, REG_SETPOINT_FLUX_CURRENT_MA_L, setpoints.flux_mA*1.0f);
 			// test new FW
 			regs[REG_PROCESSING_TIME] = telemetry_u8(API_FOC_Get_Processing_Time());
 			regs[REG_FOC_FREQUENCY] = telemetry_u8(API_FOC_Get_Processing_Frequency()/1000.0f);

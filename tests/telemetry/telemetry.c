@@ -4,12 +4,13 @@
 #include "control_table.h"
 #include "binary_tool.h"
 #include "telemetry.h"
+#include "servo_controller.h"
 
 
 uint32_t test_primask;
 void (*test_irq_restored)(void);
 static float position, velocity, torque, flux, voltage, temperature, processing_time, processing_frequency;
-static float setpoint_position_deg, setpoint_velocity_dps, setpoint_torque_current_mA, setpoint_flux_current_mA;
+static ServoSetpoints setpoints;
 static uint32_t pid_counter, mlp_counter, tick;
 float positionSensor_getDegreesMultiturn(void) { return position; }
 float positionSensor_getVelocityDps(void) { return velocity; }
@@ -43,8 +44,8 @@ int main(void)
     CHECK(regs[REG_PRESENT_VOLTAGE] == 24 && regs[REG_PID_FREQUENCY] == 4 && regs[REG_MLP_FREQUENCY] == 123);
     position = 1e20f; velocity = INFINITY; torque = -INFINITY; flux = NAN;
     voltage = INFINITY; temperature = -30; processing_time = INFINITY; processing_frequency = INFINITY;
-    setpoint_position_deg = -1e20f; setpoint_velocity_dps = INFINITY;
-    setpoint_torque_current_mA = NAN; setpoint_flux_current_mA = -INFINITY;
+    setpoints.position_deg = -1e20f; setpoints.velocity_dps = INFINITY;
+    setpoints.torque_mA = NAN; setpoints.flux_mA = -INFINITY;
     tick = 1;
     publish();
     CHECK(read_word(REG_PRESENT_POSITION_DEG_L) == INT16_MAX && read_word(REG_PRESENT_VELOCITY_DPS_L) == INT16_MAX);

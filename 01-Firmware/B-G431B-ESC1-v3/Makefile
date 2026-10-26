@@ -49,6 +49,7 @@ Core/Src/pic.c \
 Core/Src/position_sensor.c \
 Core/Src/protocol.c \
 Core/Src/serial.c \
+Core/Src/servo_controller.c \
 Core/Src/stm32g4xx_hal_msp.c \
 Core/Src/stm32g4xx_it.c \
 Core/Src/syscalls.c \

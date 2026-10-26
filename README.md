@@ -1,8 +1,8 @@
 # G431 servo drive — professional branch
 
-`professional` starts from the tested `simplified` baseline. Its first refactor
-introduces typed application data and a drive supervisor without changing the
-command protocol or control equations. See the saved
+`professional` starts from the tested `simplified` baseline. Its first refactors
+introduce typed application data, a drive supervisor and a separate outer servo
+controller without changing the command protocol or control equations. See the saved
 [professional roadmap](docs/professional-roadmap.md) and
 [current module boundaries](docs/professional-architecture.md).
 

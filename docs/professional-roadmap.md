@@ -76,6 +76,25 @@ Acceptance checks:
   CAN regression cases. Existing suites and both ARM optimization builds pass.
 - No firmware flashing, mechanical assumptions or vehicle logic are introduced.
 
+## Second refactor: outer servo controller
+
+The outer controller now lives in `servo_controller.c`, with one private owner
+for PD history, filtered velocity error and the last applied arm generation.
+`main.c` acquires the sensor sample, captures typed inputs and invokes the module
+on the existing schedule. Diagnostic setpoints are returned as `ServoSetpoints`;
+the supervisor remains the final authority for current publication and disable.
+
+Gain scales, per-sample filters, feed-forward, current/travel/velocity setpoint
+limits, phase reversal and zero position-integral gain are preserved. No CAN
+field, rate, watchdog threshold, FOC or encoder implementation changed.
+The directly linked servo suite covers numerical behavior and publication races.
+
+Roadmap item 3 is still partial: CAN framing and foreground scheduling remain in
+`main.c`; configuration/persistence separation and low-level register coupling
+remain later increments. Blocking calibration, reproducible toolchain/CI, wider
+convention consistency and the earlier control/hardware decisions above also
+remain pending.
+
 ## Reference documents
 
 - [Current drive contract](servo-drive.md)

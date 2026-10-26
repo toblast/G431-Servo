@@ -14,6 +14,7 @@ same `-Compiler` argument. Generated sources and executables are ignored.
 | startup | Dependencies before ADC callbacks; seven FOC peripheral start failures, failed timebase and held-button interlock |
 | sensor | Configuration address/readback and preserved zero, register byte order, failed/partial I2C reads, initialization, magnet status, sample timing, wraparound, atomic publication and fault flags |
 | can | Every DLC encoding, frame type/ID, FIFO bounds, ARM/DISARM, watchdog rollover, stale generations, typed command/status ownership and supervisor maintenance/fault policy; links production drive/register modules directly |
+| servo | Directly linked controller, supervisor, register adapter and PID/math helpers; gain/unit scales, setpoint/current limits, filters, feed-forward, direction, arm history and invalidated publication snapshots at `-O0` and `-O2` |
 | foc | State transitions, measured overcurrent, ADC pairing/missing streams, ADC errors, coast, preload-before-enable and invalid PWM inputs |
 | calibration | Successful alignment, both directions, no motion, pole mismatch, serviced acquisition, FOC loss before/during alignment, cancellation, sensor and persistence failures |
 | protocol | Disarmed configuration, protected runtime registers, malformed packets, maintenance interlock and write failures |

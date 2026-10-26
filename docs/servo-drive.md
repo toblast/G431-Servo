@@ -4,8 +4,8 @@ For diagrams of the control loops, code modules and runtime behavior, see the
 [visual architecture guide](architecture.md) or its [HTML edition](architecture.html).
 
 This describes `01-Firmware/B-G431B-ESC1-v3` on `professional`, preserving the
-`simplified` behavior. The [first professional refactor](professional-architecture.md)
-documents the new ownership and interfaces. All angles and
+`simplified` behavior. The [professional architecture](professional-architecture.md)
+documents the supervisor and extracted outer controller. All angles and
 velocities refer to the **motor shaft**. No gear ratio or throttle travel is
 encoded in firmware. The ESP32 converts its desired actuator position into the
 motor coordinate system.
@@ -23,7 +23,7 @@ Paths below are relative to the selected firmware directory.
 | AS5600 acquisition | Foreground `positionSensor_update` → magnet check and angle read in `Core/Src/as5600.c`; prediction and atomic sample publication in `Core/Src/position_sensor.c` |
 | CAN RX and state | `HAL_FDCAN_RxFifo0Callback` handles framing in `main.c`; `Drive_Request_Arm`, `Drive_Disarm`, command snapshots and current publication live in `drive.c` |
 | Watchdogs | `Drive_Service` in `drive.c`, shared `API_FOC_Check_Watchdog` in `foc.c` (also used during calibration), and sample-age check in `positionSensor_getRadiansEstimation` |
-| Position/velocity loop | Foreground loop in `main.c` → `pid_process_antiwindup_clamp_with_ff` in `pic.c` → guarded current publication → FOC |
+| Position/velocity loop | Foreground schedule/acquisition in `main.c` → `ServoController_Update` in `servo_controller.c` → existing PID helper in `pic.c` → `Drive_Publish_Currents` → FOC |
 | Configuration/fault flags | `control_table.c` decodes typed configuration and mirrors typed commands/status; fault helpers remain in `control_table.h`; serial maintenance permission is owned by `drive.c` |
 | Calibration | `API_FOC_Calibrate` and serviced waits in `foc.c`; button edge in `main.c` |
 | Fatal stop | `Core/Inc/emergency_stop.h`, called by `Error_Handler` and CPU fault handlers in `Core/Src/stm32g4xx_it.c` |
