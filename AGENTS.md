@@ -9,11 +9,12 @@ for a 2015 Kawasaki Ninja 300.
 
 The current working branch is:
 
-    simplified
+    professional
 
-The goal of this branch is not only to fix bugs, but also to simplify the
-upstream firmware by removing code paths and features that are not required by
-this project.
+This branch starts from `simplified` and improves software ownership, module
+boundaries and testability through small behavior-preserving refactors. The
+simplification goals and hardware/control constraints below remain applicable.
+The saved roadmap is `docs/professional-roadmap.md`.
 
 The STM32G431 motor controller is only the local servo drive.
 
