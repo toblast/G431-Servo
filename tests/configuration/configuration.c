@@ -19,9 +19,9 @@ int main(void)
 {
     defaults();
     CHECK(control_configuration_valid());
-    configuration_update_active = true;
-    CHECK(!control_configuration_valid());
-    configuration_update_active = false;
+    DriveConfig const config = control_read_config();
+    CHECK(config.min_position_deg == -800 && config.max_position_deg == 800);
+    CHECK(config.max_current_mA == 500 && config.encoder_bits == 12);
     store_status = HAL_ERROR;
     CHECK(store_eeprom_regs() == HAL_ERROR);
     CHECK(hardware_fault_status() == (1U << HW_ERROR_BIT_INTERNAL));

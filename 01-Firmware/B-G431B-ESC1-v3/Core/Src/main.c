@@ -33,6 +33,7 @@
 #include "control_table.h"
 #include "binary_tool.h"
 #include "telemetry.h"
+#include "drive.h"
 #include <string.h>
 
 /* USER CODE END Includes */
@@ -58,7 +59,7 @@
 // FOC service loop period in µs
 //  normal setting is 10000us (100Hz)
 #define SERVICE_LOOP_PERIOD 10000
-#define CAN_COMMAND_TIMEOUT_MS 1000U
+
 
 // Advanced settings (do not change)
 #define ALPHA_VELOCITY				0.24f // (default:0.24) F = 1000Hz ==> Fc (-3dB) = 20Hz
@@ -100,22 +101,13 @@ DMA_HandleTypeDef hdma_usart2_tx;
 // serial communication
 HAL_Serial_Handler serial;
 
-// CAN communication, state and fail-safe
+// CAN transport buffers. Application state belongs to drive.c.
 static FDCAN_RxHeaderTypeDef RxHeader;
 /* HAL copies the DLC-derived byte count before software validation. */
 static uint8_t RxData[64];
 static FDCAN_TxHeaderTypeDef TxHeader;
 static uint8_t TxData[8];
-static volatile bool can_armed = false;
-static volatile uint32_t can_last_time = 0;
-static volatile uint32_t can_arm_generation = 0;
 
-typedef struct {
-  bool enabled;
-  uint32_t generation;
-  int16_t position_tenths_deg, velocity_dps, torque_mA, flux_mA;
-  uint8_t pos_kp, pos_kd, vel_kp;
-} ServoCommand;
 
 /* USER CODE END PV */
 
@@ -198,76 +190,6 @@ static void FDCAN_Config(void)
 }
 
 // CAN IT on message receive
-bool Servo_Is_Disarmed(void)
-{
-  return !can_armed && !regs[REG_TORQUE_ENABLE] && !API_FOC_Is_Calibrating();
-}
-
-void Servo_Disarm(void)
-{
-  uint32_t const primask = __get_PRIMASK();
-  __disable_irq();
-  can_armed = false;
-  regs[REG_TORQUE_ENABLE] = 0;
-  memset(&regs[REG_GOAL_POSITION_DEG_L], 0,
-         REG_PRESENT_POSITION_DEG_L - REG_GOAL_POSITION_DEG_L);
-  API_FOC_Torque_Disable();
-  __set_PRIMASK(primask);
-}
-
-static void Servo_Check_Watchdogs(void)
-{
-  // Take one coherent time snapshot; an IRQ must not publish a newer timestamp
-  // between reading 'now' and subtracting the last accepted command/FOC time.
-  uint32_t const primask = __get_PRIMASK();
-  __disable_irq();
-  uint32_t const now = HAL_GetTick();
-  if (can_armed && (uint32_t)(now - can_last_time) > CAN_COMMAND_TIMEOUT_MS)
-  {
-    Servo_Disarm();
-  }
-  if (!API_FOC_Check_Watchdog())
-  {
-    Servo_Disarm();
-  }
-  __set_PRIMASK(primask);
-}
-
-static ServoCommand Servo_Get_Command(void)
-{
-  uint32_t const primask = __get_PRIMASK();
-  __disable_irq();
-  ServoCommand command;
-  command.enabled = can_armed && regs[REG_TORQUE_ENABLE] && hardware_fault_status() == 0;
-  command.generation = can_arm_generation;
-  command.position_tenths_deg = (int16_t)MAKE_SHORT(regs[REG_GOAL_POSITION_DEG_L], regs[REG_GOAL_POSITION_DEG_H]);
-  command.velocity_dps = (int16_t)MAKE_SHORT(regs[REG_GOAL_VELOCITY_DPS_L], regs[REG_GOAL_VELOCITY_DPS_H]);
-  command.torque_mA = (int16_t)MAKE_SHORT(regs[REG_GOAL_TORQUE_CURRENT_MA_L], regs[REG_GOAL_TORQUE_CURRENT_MA_H]);
-  command.flux_mA = (int16_t)MAKE_SHORT(regs[REG_GOAL_FLUX_CURRENT_MA_L], regs[REG_GOAL_FLUX_CURRENT_MA_H]);
-  command.pos_kp = regs[REG_GOAL_POS_KP];
-  command.pos_kd = regs[REG_GOAL_POS_KD];
-  command.vel_kp = regs[REG_GOAL_VEL_KP];
-  __set_PRIMASK(primask);
-  return command;
-}
-
-static bool Servo_Publish_Currents(ServoCommand const *command, bool new_arm,
-                                   float torque_mA, float flux_mA)
-{
-  uint32_t const primask = __get_PRIMASK();
-  __disable_irq();
-  bool const accepted = command->enabled && can_armed && regs[REG_TORQUE_ENABLE] &&
-                        command->generation == can_arm_generation && hardware_fault_status() == 0 &&
-                        !API_FOC_Is_Calibrating();
-  if (accepted)
-  {
-    if (new_arm) API_FOC_Torque_Enable();
-    API_FOC_Set_Torque_Flux_Currents_mA(torque_mA, flux_mA);
-  }
-  __set_PRIMASK(primask);
-  return accepted;
-}
-
 void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 {
   if (hfdcan != &hfdcan1 || (RxFifo0ITs & FDCAN_IT_RX_FIFO0_NEW_MESSAGE) == 0)
@@ -302,64 +224,35 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
     if (API_FOC_Is_Calibrating() && !disarm) continue;
     if (disarm)
     {
-      Servo_Disarm();
+      Drive_Disarm();
     }
     else if ((RxData[0] == 0xFF) && (RxData[1] == 0xFF) &&
         (RxData[2] == 0xFF) && (RxData[3] == 0xFF) &&
         (RxData[4] == 0xFF) && (RxData[5] == 0xFF) &&
         (RxData[6] == 0xFF) && (RxData[7] == 0xFF))
     {
-      if (!control_configuration_valid())
-      {
-        hardware_fault_set(1U << HW_ERROR_BIT_CONFIGURATION);
-        continue;
-      }
-      if (!positionSensor_isReady() || hardware_fault_status() != 0)
-      {
-        continue;
-      }
-      if (!can_armed)
-      {
-        float const present_position = positionSensor_getDegreesMultiturn();
-        int16_t const minimum = (int16_t)MAKE_SHORT(regs[REG_MIN_POSITION_DEG_L], regs[REG_MIN_POSITION_DEG_H]);
-        int16_t const maximum = (int16_t)MAKE_SHORT(regs[REG_MAX_POSITION_DEG_L], regs[REG_MAX_POSITION_DEG_H]);
-        if (!isfinite(present_position) || present_position < minimum || present_position > maximum)
-          continue;
-        memset(&regs[REG_GOAL_POSITION_DEG_L], 0,
-               REG_PRESENT_POSITION_DEG_L - REG_GOAL_POSITION_DEG_L);
-        int16_t const position = (int16_t)(10.0f * present_position);
-        regs[REG_GOAL_POSITION_DEG_L] = LOW_BYTE(position);
-        regs[REG_GOAL_POSITION_DEG_H] = HIGH_BYTE(position);
-        ++can_arm_generation;
-        regs[REG_TORQUE_ENABLE] = 1;
-        can_armed = true;
-      }
-    }
-    else if (can_armed)
-    {
-      regs[REG_GOAL_POSITION_DEG_L] = RxData[0];
-      regs[REG_GOAL_POSITION_DEG_H] = RxData[1];
-      regs[REG_GOAL_VELOCITY_DPS_L] = RxData[2];
-      regs[REG_GOAL_VELOCITY_DPS_H] = RxData[3];
-      regs[REG_GOAL_TORQUE_CURRENT_MA_L] = RxData[4];
-      regs[REG_GOAL_TORQUE_CURRENT_MA_H] = RxData[5];
-      regs[REG_GOAL_POS_KP] = RxData[6];
-      regs[REG_GOAL_POS_KD] = RxData[7];
+      if (!Drive_Request_Arm()) continue;
     }
     else
     {
-      continue;
+      ServoCommand const command = {
+        .position_tenths_deg = (int16_t)MAKE_SHORT(RxData[0], RxData[1]),
+        .velocity_dps = (int16_t)MAKE_SHORT(RxData[2], RxData[3]),
+        .torque_mA = (int16_t)MAKE_SHORT(RxData[4], RxData[5]),
+        .pos_kp = RxData[6],
+        .pos_kd = RxData[7]
+      };
+      if (!Drive_Submit_Command(&command)) continue;
     }
-
-    /* Only an accepted command starts or refreshes the watchdog. */
-    if (can_armed) can_last_time = HAL_GetTick();
-
     TxHeader.Identifier = 0x10 + regs[REG_ID];
     TxHeader.DataLength = FDCAN_DLC_BYTES_4;
-    TxData[0] = regs[REG_PRESENT_POSITION_DEG_L];
-    TxData[1] = regs[REG_PRESENT_POSITION_DEG_H];
-    TxData[2] = regs[REG_PRESENT_TORQUE_CURRENT_MA_L];
-    TxData[3] = regs[REG_PRESENT_TORQUE_CURRENT_MA_H];
+    DriveStatus const status = Drive_Get_Status();
+    int16_t const position = telemetry_i16(status.measured.position_deg * 10.0f);
+    int16_t const torque = telemetry_i16(status.measured.torque_mA);
+    TxData[0] = LOW_BYTE(position);
+    TxData[1] = HIGH_BYTE(position);
+    TxData[2] = LOW_BYTE(torque);
+    TxData[3] = HIGH_BYTE(torque);
     HAL_FDCAN_AddMessageToTxFifoQ(hfdcan, &TxHeader, TxData);
   }
 }
@@ -412,6 +305,7 @@ int main(void)
   if (eeprom_empty() && factory_reset_eeprom_regs() != HAL_OK) Error_Handler();
   load_eeprom_regs();
   reset_ram_regs();
+  Drive_Init();
   if (!control_configuration_valid()) hardware_fault_set(1U << HW_ERROR_BIT_CONFIGURATION);
   HAL_Serial_Init(&huart2,&serial);
   if (!positionSensor_init())
@@ -451,13 +345,7 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 
-	  	// hardware error clears torque enable register and disable FOC torque controller
-		if( hardware_fault_status() != 0 )
-		{
-			Servo_Disarm();
-		}
-
-		Servo_Check_Watchdogs();
+		Drive_Service();
 
 		// 1 to 4Khz low priority process
 		present_time_us = __HAL_TIM_GET_COUNTER(&htim6);
@@ -469,7 +357,8 @@ int main(void)
 
 			// update sensor
 			positionSensor_update();
-			ServoCommand const command = Servo_Get_Command();
+			DriveCommandSnapshot const command = Drive_Get_Command();
+			DriveConfig const config = control_read_config();
 
 			if(command.enabled)
 			{
@@ -491,24 +380,24 @@ int main(void)
 
 
 				// compute position set-point from goal and EEPROM position limits
-				float const goal_position_deg = (float)command.position_tenths_deg / 10.0f;
-				float const reg_min_position_deg = (float)((int16_t)(MAKE_SHORT(regs[REG_MIN_POSITION_DEG_L],regs[REG_MIN_POSITION_DEG_H])));
-				float const reg_max_position_deg = (float)((int16_t)(MAKE_SHORT(regs[REG_MAX_POSITION_DEG_L],regs[REG_MAX_POSITION_DEG_H])));
+				float const goal_position_deg = (float)command.goal.position_tenths_deg / 10.0f;
+				float const reg_min_position_deg = (float)config.min_position_deg;
+				float const reg_max_position_deg = (float)config.max_position_deg;
 				setpoint_position_deg = fconstrain(goal_position_deg,reg_min_position_deg,reg_max_position_deg);
 				// compute velocity setpoint from goal and EEPROM velocity limit
-				float const goal_velocity_dps = command.velocity_dps;
-				float const reg_max_velocity_dps = (int16_t)(MAKE_SHORT(regs[REG_MAX_VELOCITY_DPS_L],regs[REG_MAX_VELOCITY_DPS_H]));
+				float const goal_velocity_dps = command.goal.velocity_dps;
+				float const reg_max_velocity_dps = config.max_velocity_dps;
 				setpoint_velocity_dps = fconstrain(goal_velocity_dps,-reg_max_velocity_dps,reg_max_velocity_dps);
 				// compute torque feed forward
-				float const torque_feed_forward_ma = command.torque_mA;
+				float const torque_feed_forward_ma = command.goal.torque_mA;
 				// compute torque setpoint
 				float const error_position_deg = setpoint_position_deg-positionSensor_getDegreesMultiturn();
-				float const pos_kp = (float)command.pos_kp*2.0f;
-				float const pos_kd = (float)command.pos_kd*100.0f*2.0f;
-				float const reg_max_current_ma = (uint16_t)(MAKE_SHORT(regs[REG_MAX_CURRENT_MA_L],regs[REG_MAX_CURRENT_MA_H]));
-				float const vel_kp = (float)command.vel_kp/10.0f;
+				float const pos_kp = (float)command.goal.pos_kp*2.0f;
+				float const pos_kd = (float)command.goal.pos_kd*100.0f*2.0f;
+				float const reg_max_current_ma = config.max_current_mA;
+				float const vel_kp = (float)command.goal.vel_kp/10.0f;
 				error_velocity_dps = ALPHA_VELOCITY*(setpoint_velocity_dps-positionSensor_getVelocityDps())+(1.0f-ALPHA_VELOCITY)*error_velocity_dps;
-				float const reg_reverse = regs[REG_INV_PHASE_MOTOR] == 0 ? 1.0f : -1.0f;
+				float const reg_reverse = config.invert_phase_motor == 0 ? 1.0f : -1.0f;
 				setpoint_torque_current_mA = reg_reverse*pid_process_antiwindup_clamp_with_ff(
 						&pd_position,
 						error_position_deg,
@@ -521,11 +410,11 @@ int main(void)
 				);
 				//setpoint_torque_current_mA=(potentiometer_input_adc/4096)*3000.0f; // DEBUG
 				// set flux
-				float const goal_flux_current_mA = command.flux_mA;
+				float const goal_flux_current_mA = command.goal.flux_mA;
 				setpoint_flux_current_mA = goal_flux_current_mA;
 
 				// update FOC parameters
-				torque_was_enable = Servo_Publish_Currents(&command, new_arm,
+				torque_was_enable = Drive_Publish_Currents(&command, new_arm,
 						setpoint_torque_current_mA, setpoint_flux_current_mA);
 				if (torque_was_enable) applied_arm_generation = command.generation;
 
@@ -536,14 +425,10 @@ int main(void)
 				if(torque_was_enable)
 				{
 					torque_was_enable = false;
-					uint32_t const primask = __get_PRIMASK();
-					__disable_irq();
-					if (!can_armed || !regs[REG_TORQUE_ENABLE] || hardware_fault_status() != 0)
-						API_FOC_Torque_Disable();
-					__set_PRIMASK(primask);
+					Drive_Disable_If_Disarmed();
 				}
 
-				// Servo_Disarm owns command reset; do not erase a newly received ARM.
+				// Drive_Disarm owns command reset; do not erase a newly received ARM.
 
 				// reset all setpoints
 				setpoint_position_deg = 0.0f;
@@ -557,13 +442,16 @@ int main(void)
 			// RAM Update
 			uint32_t const telemetry_primask = __get_PRIMASK();
 			__disable_irq();
-			telemetry_store_i16(regs, REG_PRESENT_POSITION_DEG_L, positionSensor_getDegreesMultiturn()*10.0f);
-			telemetry_store_i16(regs, REG_PRESENT_VELOCITY_DPS_L, positionSensor_getVelocityDps()*1.0f);
-			telemetry_store_i16(regs, REG_PRESENT_TORQUE_CURRENT_MA_L, API_FOC_Get_Present_Torque_Current()*1.0f);
-			telemetry_store_i16(regs, REG_PRESENT_FLUX_CURRENT_MA_L, API_FOC_Get_Present_Flux_Current()*1.0f);
-			regs[REG_PRESENT_VOLTAGE] = telemetry_u8(API_FOC_Get_Present_Voltage());
-			regs[REG_PRESENT_TEMPERATURE] = telemetry_u8(API_FOC_Get_Present_Temp());
-			regs[REG_MOVING] = fabsf(positionSensor_getVelocityDps()) > (float)regs[REG_MOVING_THRESHOLD_DPS] ? 1 : 0;
+            DriveMeasurements const measurements = {
+                .position_deg = positionSensor_getDegreesMultiturn(),
+                .velocity_dps = positionSensor_getVelocityDps(),
+                .torque_mA = API_FOC_Get_Present_Torque_Current(),
+                .flux_mA = API_FOC_Get_Present_Flux_Current(),
+                .voltage_V = API_FOC_Get_Present_Voltage(),
+                .temperature_C = API_FOC_Get_Present_Temp(),
+                .moving = fabsf(positionSensor_getVelocityDps()) > (float)config.moving_threshold_dps
+            };
+            Drive_Publish_Measurements(&measurements);
 			__set_PRIMASK(telemetry_primask);
 
 			// DEBUG RAM Update
@@ -590,7 +478,7 @@ int main(void)
 			if (!control_configuration_valid())
 			{
 				hardware_fault_set(1U << HW_ERROR_BIT_CONFIGURATION);
-				Servo_Disarm();
+				Drive_Disarm();
 			}
 			else hardware_fault_clear(1U << HW_ERROR_BIT_CONFIGURATION);
 			API_FOC_Service_Update();
@@ -607,12 +495,12 @@ int main(void)
 
 			// A new press may request calibration only while already disarmed.
 			bool const calibration_button_down = HAL_GPIO_ReadPin(BUTTON_GPIO_Port,BUTTON_Pin)==GPIO_PIN_RESET;
-			bool const calibration_requested = calibration_button_down && !calibration_button_was_down && Servo_Is_Disarmed();
+			bool const calibration_requested = calibration_button_down && !calibration_button_was_down && Drive_Is_Disarmed();
 			calibration_button_was_down = calibration_button_down;
 			if(calibration_requested)
 			{
 				// start FOC calibration
-				int const result = API_FOC_Calibrate();
+				int const result = Drive_Run_Calibration();
 				HAL_Serial_Print(&serial, "Calibration result: %d (0=success, 1=no motion, 2=pole pairs, 3=cancel/fault, 4=storage)\n", result);
 			}
 

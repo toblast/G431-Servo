@@ -8,35 +8,80 @@
 #include "control_table.h"
 #include "binary_tool.h"
 #include "eeprom.h"
+#include "telemetry.h"
 
 #include "stm32g4xx_hal.h"
 #include <string.h>
 
 uint8_t regs[REG_MAX];
-volatile bool configuration_update_active = false;
+
+DriveConfig control_read_config(void)
+{
+    uint32_t const primask = __get_PRIMASK();
+    __disable_irq();
+    DriveConfig const result = {
+        .min_position_deg = (int16_t)MAKE_SHORT(regs[REG_MIN_POSITION_DEG_L], regs[REG_MIN_POSITION_DEG_H]),
+        .max_position_deg = (int16_t)MAKE_SHORT(regs[REG_MAX_POSITION_DEG_L], regs[REG_MAX_POSITION_DEG_H]),
+        .max_velocity_dps = (int16_t)MAKE_SHORT(regs[REG_MAX_VELOCITY_DPS_L], regs[REG_MAX_VELOCITY_DPS_H]),
+        .max_current_mA = MAKE_SHORT(regs[REG_MAX_CURRENT_MA_L], regs[REG_MAX_CURRENT_MA_H]),
+        .encoder_bits = regs[REG_ENCODER_BITS],
+        .motor_pole_pairs = regs[REG_MOTOR_POLE_PAIRS],
+        .invert_phase_motor = regs[REG_INV_PHASE_MOTOR],
+        .low_voltage_V = regs[REG_LOW_VOLTAGE_LIMIT],
+        .high_voltage_V = regs[REG_HIGH_VOLTAGE_LIMIT],
+        .temperature_limit_C = regs[REG_TEMPERATURE_LIMIT],
+        .moving_threshold_dps = regs[REG_MOVING_THRESHOLD_DPS],
+        .flux_current_kp_raw = (int16_t)MAKE_SHORT(regs[REG_PID_FLUX_CURRENT_KP_L], regs[REG_PID_FLUX_CURRENT_KP_H]),
+        .flux_current_ki_raw = (int16_t)MAKE_SHORT(regs[REG_PID_FLUX_CURRENT_KI_L], regs[REG_PID_FLUX_CURRENT_KI_H]),
+        .torque_current_kp_raw = (int16_t)MAKE_SHORT(regs[REG_PID_TORQUE_CURRENT_KP_L], regs[REG_PID_TORQUE_CURRENT_KP_H]),
+        .torque_current_ki_raw = (int16_t)MAKE_SHORT(regs[REG_PID_TORQUE_CURRENT_KI_L], regs[REG_PID_TORQUE_CURRENT_KI_H])
+    };
+    __set_PRIMASK(primask);
+    return result;
+}
+
+void control_mirror_command(bool enabled, ServoCommand const *command)
+{
+    regs[REG_TORQUE_ENABLE] = enabled;
+    memset(&regs[REG_GOAL_POSITION_DEG_L], 0, REG_PRESENT_POSITION_DEG_L - REG_GOAL_POSITION_DEG_L);
+    regs[REG_GOAL_POSITION_DEG_L] = LOW_BYTE(command->position_tenths_deg);
+    regs[REG_GOAL_POSITION_DEG_H] = HIGH_BYTE(command->position_tenths_deg);
+    regs[REG_GOAL_VELOCITY_DPS_L] = LOW_BYTE(command->velocity_dps);
+    regs[REG_GOAL_VELOCITY_DPS_H] = HIGH_BYTE(command->velocity_dps);
+    regs[REG_GOAL_TORQUE_CURRENT_MA_L] = LOW_BYTE(command->torque_mA);
+    regs[REG_GOAL_TORQUE_CURRENT_MA_H] = HIGH_BYTE(command->torque_mA);
+    regs[REG_GOAL_FLUX_CURRENT_MA_L] = LOW_BYTE(command->flux_mA);
+    regs[REG_GOAL_FLUX_CURRENT_MA_H] = HIGH_BYTE(command->flux_mA);
+    regs[REG_GOAL_POS_KP] = command->pos_kp;
+    regs[REG_GOAL_POS_KD] = command->pos_kd;
+    regs[REG_GOAL_VEL_KP] = command->vel_kp;
+}
+
+void control_mirror_measurements(DriveMeasurements const *measurements)
+{
+    telemetry_store_i16(regs, REG_PRESENT_POSITION_DEG_L, measurements->position_deg * 10.0f);
+    telemetry_store_i16(regs, REG_PRESENT_VELOCITY_DPS_L, measurements->velocity_dps);
+    telemetry_store_i16(regs, REG_PRESENT_TORQUE_CURRENT_MA_L, measurements->torque_mA);
+    telemetry_store_i16(regs, REG_PRESENT_FLUX_CURRENT_MA_L, measurements->flux_mA);
+    regs[REG_PRESENT_VOLTAGE] = telemetry_u8(measurements->voltage_V);
+    regs[REG_PRESENT_TEMPERATURE] = telemetry_u8(measurements->temperature_C);
+    regs[REG_MOVING] = measurements->moving;
+}
 
 bool control_configuration_valid(void)
 {
-    if (configuration_update_active) return false;
-    int16_t const minimum = (int16_t)MAKE_SHORT(regs[REG_MIN_POSITION_DEG_L], regs[REG_MIN_POSITION_DEG_H]);
-    int16_t const maximum = (int16_t)MAKE_SHORT(regs[REG_MAX_POSITION_DEG_L], regs[REG_MAX_POSITION_DEG_H]);
-    int16_t const velocity = (int16_t)MAKE_SHORT(regs[REG_MAX_VELOCITY_DPS_L], regs[REG_MAX_VELOCITY_DPS_H]);
-    uint16_t const current = MAKE_SHORT(regs[REG_MAX_CURRENT_MA_L], regs[REG_MAX_CURRENT_MA_H]);
-    int16_t const flux_kp = (int16_t)MAKE_SHORT(regs[REG_PID_FLUX_CURRENT_KP_L], regs[REG_PID_FLUX_CURRENT_KP_H]);
-    int16_t const flux_ki = (int16_t)MAKE_SHORT(regs[REG_PID_FLUX_CURRENT_KI_L], regs[REG_PID_FLUX_CURRENT_KI_H]);
-    int16_t const torque_kp = (int16_t)MAKE_SHORT(regs[REG_PID_TORQUE_CURRENT_KP_L], regs[REG_PID_TORQUE_CURRENT_KP_H]);
-    int16_t const torque_ki = (int16_t)MAKE_SHORT(regs[REG_PID_TORQUE_CURRENT_KI_L], regs[REG_PID_TORQUE_CURRENT_KI_H]);
-    return minimum < maximum && minimum >= -3276 && maximum <= 3276 &&
-           velocity > 0 && (uint16_t)velocity <= SERVO_BENCH_MAX_VELOCITY_DPS &&
-           current > 0 && current <= SERVO_BENCH_MAX_CURRENT_MA &&
-           regs[REG_ENCODER_BITS] == 12 && regs[REG_MOTOR_POLE_PAIRS] != 0 &&
-           regs[REG_INV_PHASE_MOTOR] <= 1 &&
-           regs[REG_LOW_VOLTAGE_LIMIT] > 0 &&
-           regs[REG_LOW_VOLTAGE_LIMIT] < regs[REG_HIGH_VOLTAGE_LIMIT] &&
-           regs[REG_HIGH_VOLTAGE_LIMIT] <= REG_HIGH_VOLTAGE_LIMIT_VALUE &&
-           regs[REG_TEMPERATURE_LIMIT] > 0 && regs[REG_TEMPERATURE_LIMIT] <= REG_TEMPERATURE_LIMIT_VALUE &&
-           flux_kp >= 0 && flux_ki >= 0 && (flux_kp > 0 || flux_ki > 0) &&
-           torque_kp >= 0 && torque_ki >= 0 && (torque_kp > 0 || torque_ki > 0);
+    DriveConfig const config = control_read_config();
+    return config.min_position_deg < config.max_position_deg && config.min_position_deg >= -3276 && config.max_position_deg <= 3276 &&
+           config.max_velocity_dps > 0 && (uint16_t)config.max_velocity_dps <= SERVO_BENCH_MAX_VELOCITY_DPS &&
+           config.max_current_mA > 0 && config.max_current_mA <= SERVO_BENCH_MAX_CURRENT_MA &&
+           config.encoder_bits == 12 && config.motor_pole_pairs != 0 && config.invert_phase_motor <= 1 &&
+           config.low_voltage_V > 0 && config.low_voltage_V < config.high_voltage_V &&
+           config.high_voltage_V <= REG_HIGH_VOLTAGE_LIMIT_VALUE &&
+           config.temperature_limit_C > 0 && config.temperature_limit_C <= REG_TEMPERATURE_LIMIT_VALUE &&
+           config.flux_current_kp_raw >= 0 && config.flux_current_ki_raw >= 0 &&
+           (config.flux_current_kp_raw > 0 || config.flux_current_ki_raw > 0) &&
+           config.torque_current_kp_raw >= 0 && config.torque_current_ki_raw >= 0 &&
+           (config.torque_current_kp_raw > 0 || config.torque_current_ki_raw > 0);
 }
 
 HAL_StatusTypeDef factory_reset_eeprom_regs()

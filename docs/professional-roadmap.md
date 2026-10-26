@@ -49,11 +49,14 @@ preserving the selected motor-control implementation and command contract.
 
 ## First refactor: typed model and drive supervisor
 
-Current path: `main.c` CAN callback -> shared command registers/arming flags ->
+Implemented as the first increment on `professional`. Details, remaining
+boundaries and verification are in [professional-architecture.md](professional-architecture.md).
+
+Baseline path: `main.c` CAN callback -> shared command registers/arming flags ->
 foreground byte decoding -> outer controller -> guarded FOC current publication.
 Serial configuration/reset and button calibration also depend on that state.
 
-The first increment will introduce a typed command owner and drive supervisor,
+The first increment introduces a typed command owner and drive supervisor,
 typed views of active configuration and measurements, and a register adapter.
 The selected wire format, flash layout, current/position equations, default
 limits, watchdog thresholds, calibration trajectory and immediate disable paths

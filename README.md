@@ -1,8 +1,14 @@
-# G431 servo drive — simplified branch
+# G431 servo drive — professional branch
+
+`professional` starts from the tested `simplified` baseline. Its first refactor
+introduces typed application data and a drive supervisor without changing the
+command protocol or control equations. See the saved
+[professional roadmap](docs/professional-roadmap.md) and
+[current module boundaries](docs/professional-architecture.md).
 
 Local servo firmware for the ST B-G431B-ESC1 with an AS5600 encoder over I2C.
 The selected project is **`01-Firmware/B-G431B-ESC1-v3`**. Other firmware folders
-are upstream experiments and are outside the simplified branch's validation.
+are upstream experiments and are outside this branch's validation.
 
 The STM32 owns commutation, FOC/current control, encoder acquisition, the outer
 servo loop and local faults. An ESP32 owns cruise control and sends commands
@@ -18,9 +24,10 @@ over CAN. No vehicle speed, brake, clutch or cruise-control logic runs here.
 - Provisional bench current defaults: 500 mA command limit, configurable up to
   1000 mA; measured phase-current trip at 1500 mA.
 
-Start with the [visual architecture guide](docs/architecture.md)
-([illustrated HTML edition](docs/architecture.html)) for diagrams of the system,
-control loops, code modules, execution contexts and state transitions.
+The [visual architecture guide](docs/architecture.md)
+([illustrated HTML edition](docs/architecture.html)) describes the baseline
+system, control loops, execution contexts and state transitions. See the
+[current module boundaries](docs/professional-architecture.md) for this refactor.
 
 See the [drive contract and bench checklist](docs/servo-drive.md),
 [audit findings and patch plan](docs/simplified-audit.md),

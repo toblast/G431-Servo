@@ -13,7 +13,7 @@ $fixture = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'telemetry.c'))
 $generated = Join-Path $build 'telemetry.c'
 [IO.File]::WriteAllText($generated, $fixture.Replace('/* UPDATE */', $update))
 $exe = Join-Path $build 'telemetry.exe'
-& $cc -std=gnu99 -O2 -Wall -Wextra -Werror -I (Join-Path $root 'tests/sensor/mocks') -I (Join-Path $firmware 'Core/Inc') $generated -o $exe -lm
+& $cc -std=gnu99 -O2 -Wall -Wextra -Werror -I (Join-Path $root 'tests/sensor/mocks') -I (Join-Path $firmware 'Core/Inc') $generated (Join-Path $firmware 'Core/Src/control_table.c') -o $exe -lm
 if ($LASTEXITCODE -ne 0) { throw 'Telemetry compilation failed.' }
 & $exe
 if ($LASTEXITCODE -ne 0) { throw 'Telemetry regressions failed.' }

@@ -5,7 +5,7 @@
 #include "binary_tool.h"
 #include "telemetry.h"
 
-uint8_t regs[REG_MAX];
+
 uint32_t test_primask;
 void (*test_irq_restored)(void);
 static float position, velocity, torque, flux, voltage, temperature, processing_time, processing_frequency;
@@ -20,8 +20,12 @@ float API_FOC_Get_Present_Temp(void) { return temperature; }
 float API_FOC_Get_Processing_Time(void) { return processing_time; }
 float API_FOC_Get_Processing_Frequency(void) { return processing_frequency; }
 uint32_t HAL_GetTick(void) { return tick; }
+void Drive_Publish_Measurements(DriveMeasurements const *measurements) { control_mirror_measurements(measurements); }
+HAL_StatusTypeDef eeprom_store(uint8_t const *data, uint32_t size) { (void)data; (void)size; return HAL_OK; }
+HAL_StatusTypeDef eeprom_restore(uint8_t *data, uint32_t size) { (void)data; (void)size; return HAL_OK; }
 static void publish(void)
 {
+    DriveConfig const config = control_read_config();
     /* UPDATE */
 }
 #define CHECK(condition) do { if (!(condition)) { fprintf(stderr, "Telemetry line %d: %s\n", __LINE__, #condition); exit(1); } } while (0)

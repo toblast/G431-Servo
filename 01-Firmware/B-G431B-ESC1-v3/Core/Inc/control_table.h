@@ -10,6 +10,7 @@
 
 #include "stm32g4xx_hal.h"
 #include <stdbool.h>
+#include "drive_types.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -233,11 +234,16 @@ extern "C" {
 #define HW_ERROR_BIT_CONFIGURATION 7
 
 // REGISTER OPERATIONS ////////////////////////////////////////////////////////
-extern volatile bool configuration_update_active;
+// Legacy serial/flash register adapter. Runtime command/status mirrors are
+// written by the supervisor; application control consumes typed snapshots.
+DriveConfig control_read_config(void);
+void control_mirror_command(bool enabled, ServoCommand const *command);
+void control_mirror_measurements(DriveMeasurements const *measurements);
 HAL_StatusTypeDef factory_reset_eeprom_regs();
 void load_eeprom_regs();
 HAL_StatusTypeDef store_eeprom_regs();
 void reset_ram_regs();
+// This validates parameter values only. Maintenance/arming policy belongs to drive.c.
 bool control_configuration_valid(void);
 
 extern uint8_t regs[REG_MAX];

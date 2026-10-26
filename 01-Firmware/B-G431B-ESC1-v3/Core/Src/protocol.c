@@ -9,7 +9,7 @@
 #include "control_table.h"
 #include "binary_tool.h"
 #include "serial.h"
-#include "main.h"
+#include "drive.h"
 #include "foc.h"
 #include <string.h>
 
@@ -130,15 +130,14 @@ static bool protocol_write_registers(uint16_t address, uint16_t length, uint8_t 
     bool const led = address == REG_LED && length == 1;
     uint32_t const primask = __get_PRIMASK();
     __disable_irq();
-    bool const allowed = led || (configuration && Servo_Is_Disarmed());
+    bool const allowed = led || (configuration && Drive_Begin_Maintenance(false));
     if (allowed) {
-        if (configuration) configuration_update_active = true;
         memcpy(&regs[address], data, length);
     }
     __set_PRIMASK(primask);
     if (allowed && configuration) {
         HAL_StatusTypeDef const result = store_eeprom_regs();
-        configuration_update_active = false;
+        Drive_End_Maintenance();
         return result == HAL_OK;
     }
     return allowed;
@@ -216,10 +215,9 @@ void instruction_handler()
 		break;
 	case INSTR_FACTORY_RESET:
 		{
-			configuration_update_active = true;
-			Servo_Disarm();
+			if (!Drive_Begin_Maintenance(true)) break;
 			HAL_StatusTypeDef const result = factory_reset_eeprom_regs();
-			if (result != HAL_OK) configuration_update_active = false;
+			if (result != HAL_OK) Drive_End_Maintenance();
 			// reply with a status packet with Model Number LSB MSB and Firmware version
 			tx_packet_buffer[PKT_INSTRUCTION]= INSTR_STATUS;
 			tx_packet_buffer[PKT_ERROR]= result == HAL_OK ? ERROR_NONE : ERROR_RESULT_FAIL;
@@ -234,8 +232,7 @@ void instruction_handler()
 		break;
 	case INSTR_REBOOT:
 		{
-			configuration_update_active = true;
-			Servo_Disarm();
+			if (!Drive_Begin_Maintenance(true)) break;
 			// reply with a status packet with Model Number LSB MSB and Firmware version
 			tx_packet_buffer[PKT_INSTRUCTION]= INSTR_STATUS;
 			tx_packet_buffer[PKT_ERROR]= ERROR_NONE;

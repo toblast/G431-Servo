@@ -39,6 +39,7 @@ C_SOURCES =  \
 Core/Src/as5600.c \
 Core/Src/control_table.c \
 Core/Src/cordic.c \
+Core/Src/drive.c \
 Core/Src/eeprom.c \
 Core/Src/foc.c \
 Core/Src/foc_utils.c \

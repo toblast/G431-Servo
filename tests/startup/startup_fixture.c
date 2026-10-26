@@ -26,7 +26,7 @@ static bool foc_ready, service_ready, serial_ready, can_ready;
 static unsigned adc_callbacks;
 static bool mock_button_down;
 static bool mock_servo_disarmed = true;
-static bool Servo_Is_Disarmed(void) { return mock_servo_disarmed; }
+static bool Drive_Is_Disarmed(void) { return mock_servo_disarmed; }
 #define BUTTON_GPIO_Port 0
 #define BUTTON_Pin 0
 #define GPIO_PIN_RESET 0
@@ -66,6 +66,7 @@ static bool eeprom_empty(void) { return true; }
 static int factory_reset_eeprom_regs(void) { assert(!can_ready); return HAL_OK; }
 static void load_eeprom_regs(void) { configuration_loaded = true; }
 static void reset_ram_regs(void) { ram_reset = true; }
+static void Drive_Init(void) { assert(ram_reset && !can_ready); }
 static bool control_configuration_valid(void) { return true; }
 #define HW_ERROR_BIT_CONFIGURATION 7
 static void hardware_fault_set(uint8_t bits) { (void)bits; }

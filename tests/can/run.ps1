@@ -21,7 +21,7 @@ $Compiler = $compilerCommand.Source
 $env:PATH = (Split-Path -Parent $Compiler) + [IO.Path]::PathSeparator + $env:PATH
 
 $source = [IO.File]::ReadAllText((Join-Path $firmwareRoot 'Core/Src/main.c'))
-$globals = [regex]::Match($source, '(?s)// CAN communication, state and fail-safe.*?(?=/\* USER CODE END PV \*/)')
+$globals = [regex]::Match($source, '(?s)// CAN transport buffers.*?(?=/\* USER CODE END PV \*/)')
 $settings = [regex]::Matches($source, '(?m)^#define (?:CAN_COMMAND_TIMEOUT_MS|FOC_TIMEOUT_MS)\s+[^\r\n]+').Value -join "`n"
 $callback = [regex]::Match($source, '(?s)// CAN IT on message receive.*?(?=/\* USER CODE END 0 \*/)')
 if (!$globals.Success -or !$callback.Success) { throw 'Production CAN source markers were not found.' }
@@ -33,7 +33,7 @@ if (!$watchdog) { throw 'Production FOC watchdog was not found.' }
 $executable = Join-Path $buildRoot 'can_callback_test.exe'
 $compilerArgs = @('-std=c11', '-Wall', '-Wextra', '-Werror', '-O0',
     '-I', (Join-Path $testRoot 'stubs'), '-I', $testRoot,
-    '-I', (Join-Path $firmwareRoot 'Core/Inc'), $generated, '-o', $executable)
+    '-I', (Join-Path $firmwareRoot 'Core/Inc'), $generated, (Join-Path $firmwareRoot 'Core/Src/drive.c'), (Join-Path $firmwareRoot 'Core/Src/control_table.c'), '-o', $executable)
 & $Compiler @compilerArgs
 if ($LASTEXITCODE -ne 0) { throw "Native C compilation failed ($LASTEXITCODE)." }
 & $executable $Suite

@@ -5,6 +5,7 @@
 
 typedef enum { HAL_OK = 0, HAL_ERROR = 1 } HAL_StatusTypeDef;
 typedef struct { unsigned unused; } FDCAN_HandleTypeDef;
+typedef struct { unsigned unused; } I2C_HandleTypeDef;
 typedef struct {
     uint32_t Identifier, IdType, RxFrameType, DataLength;
     uint32_t ErrorStateIndicator, BitRateSwitch, FDFormat;

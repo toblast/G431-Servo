@@ -27,6 +27,7 @@ HAL_StatusTypeDef HAL_FDCAN_GetRxMessage(FDCAN_HandleTypeDef *handle, uint32_t f
 static void reset_fixture(bool armed)
 {
     memset(regs, 0, sizeof(regs));
+    factory_reset_eeprom_regs();
     memset(pending_data, 0x5A, sizeof(pending_data));
     regs[REG_ID] = 1;
     regs[REG_MIN_POSITION_DEG_L] = LOW_BYTE(-180);
@@ -34,16 +35,15 @@ static void reset_fixture(bool armed)
     regs[REG_MAX_POSITION_DEG_L] = LOW_BYTE(180);
     regs[REG_MAX_POSITION_DEG_H] = HIGH_BYTE(180);
     mock_position_deg = 90;
-    regs[REG_TORQUE_ENABLE] = armed ? 1 : 0;
-    can_armed = armed;
-    can_arm_generation = 0;
-    can_last_time = 17;
     mock_tick = 300;
     mock_foc_tick = mock_tick;
     test_primask = 0;
     sensor_ready = true;
     mock_calibrating = false;
-    mock_configuration_valid = true;
+    Drive_Init();
+    if (armed) { mock_tick = 17; Drive_Request_Arm(); }
+    initial_command_ms = can_last_time;
+    mock_tick = mock_foc_tick = 300;
     tx_count = disable_count = pending_rx = receive_buffer_too_small = 0;
     rx_read_calls = fail_rx_read = refill_rx = 0;
     enable_count = current_updates = 0;
@@ -72,7 +72,7 @@ static void expect_rejected(const char *label)
     receive();
     CHECK(memcmp(previous, regs, sizeof(previous)) == 0, label);
     CHECK(can_armed, "rejected frame preserves armed state");
-    CHECK(can_last_time == 17, "rejected frame does not refresh watchdog");
+    CHECK(can_last_time == initial_command_ms, "rejected frame does not refresh watchdog");
     CHECK(tx_count == 0, "rejected frame does not receive acceptance feedback");
 }
 
@@ -106,7 +106,7 @@ static void test_disarmed_and_arm(void)
     reset_fixture(false);
     receive();
     CHECK(!can_armed && !regs[REG_TORQUE_ENABLE], "ordinary command cannot arm");
-    CHECK(can_last_time == 17, "disarmed command does not refresh watchdog");
+    CHECK(can_last_time == initial_command_ms, "disarmed command does not refresh watchdog");
     CHECK(regs[REG_GOAL_POSITION_DEG_L] == 0, "disarmed command is ignored");
 
     reset_fixture(false);
@@ -144,14 +144,14 @@ static void test_arm_requires_healthy_encoder(void)
     sensor_ready = false;
     receive();
     CHECK(!can_armed && !regs[REG_TORQUE_ENABLE], "uninitialized encoder cannot arm");
-    CHECK(can_last_time == 17, "rejected ARM does not start watchdog");
+    CHECK(can_last_time == initial_command_ms, "rejected ARM does not start watchdog");
 
     reset_fixture(false);
     memset(pending_data, 0xFF, 8);
     regs[REG_HARDWARE_ERROR_STATUS] = 1U << HW_ERROR_BIT_POSITION_SENSOR_STATUS_ERROR;
     receive();
     CHECK(!can_armed && !regs[REG_TORQUE_ENABLE], "sensor fault prevents ARM");
-    CHECK(can_last_time == 17, "faulted ARM does not start watchdog");
+    CHECK(can_last_time == initial_command_ms, "faulted ARM does not start watchdog");
 
     reset_fixture(false);
     memset(pending_data, 0xFF, 8);
@@ -164,7 +164,7 @@ static void test_arm_requires_healthy_encoder(void)
 
     reset_fixture(false);
     memset(pending_data, 0xFF, 8);
-    mock_configuration_valid = false;
+    regs[REG_ENCODER_BITS] = 0;
     receive();
     CHECK(!can_armed && !regs[REG_TORQUE_ENABLE], "invalid configuration prevents ARM");
     CHECK(hardware_fault_status() & (1U << HW_ERROR_BIT_CONFIGURATION), "configuration fault is recorded");
@@ -177,7 +177,7 @@ static void test_irq_bounds(void)
     fail_rx_read = 1;
     HAL_FDCAN_RxFifo0Callback(&hfdcan1, FDCAN_IT_RX_FIFO0_NEW_MESSAGE);
     CHECK(rx_read_calls == 1, "HAL receive failure terminates interrupt work");
-    CHECK(can_last_time == 17, "HAL receive failure does not refresh watchdog");
+    CHECK(can_last_time == initial_command_ms, "HAL receive failure does not refresh watchdog");
 
     reset_fixture(true);
     pending_rx = 2;
@@ -236,32 +236,32 @@ static void test_watchdog_rollover_and_boundaries(void)
 {
     reset_fixture(true);
     mock_tick = mock_foc_tick = 1017;
-    Servo_Check_Watchdogs();
+    Drive_Service();
     CHECK(can_armed, "CAN remains armed at the exact timeout boundary");
     mock_tick = mock_foc_tick = 1018;
-    Servo_Check_Watchdogs();
+    Drive_Service();
     CHECK(!can_armed && disable_count == 1, "CAN expiry disables immediately");
 
     reset_fixture(true);
-    can_last_time = UINT32_MAX - 200;
+    mock_tick = UINT32_MAX - 200; Drive_Request_Arm();
     mock_tick = mock_foc_tick = UINT32_MAX - 100;
-    Servo_Check_Watchdogs();
+    Drive_Service();
     CHECK(can_armed, "CAN does not expire prematurely before rollover");
-    can_last_time = UINT32_MAX - 500;
+    mock_tick = UINT32_MAX - 500; Drive_Request_Arm();
     mock_tick = mock_foc_tick = 100;
-    Servo_Check_Watchdogs();
+    Drive_Service();
     CHECK(can_armed, "CAN elapsed time remains valid after rollover");
     mock_tick = mock_foc_tick = 600;
-    Servo_Check_Watchdogs();
+    Drive_Service();
     CHECK(!can_armed, "CAN expires across rollover");
 
     reset_fixture(true);
-    can_last_time = mock_tick = 4;
+    mock_tick = 4; Drive_Request_Arm();
     mock_foc_tick = UINT32_MAX - 5;
-    Servo_Check_Watchdogs();
+    Drive_Service();
     CHECK(can_armed, "FOC remains healthy at ten milliseconds across rollover");
     mock_tick = 5;
-    Servo_Check_Watchdogs();
+    Drive_Service();
     CHECK(!can_armed, "FOC timeout disables across rollover");
     CHECK(regs[REG_HARDWARE_ERROR_STATUS] & (1U << HW_ERROR_BIT_FOC_TIMEOUT),
           "FOC timeout records a fault");
@@ -271,28 +271,85 @@ static void test_watchdog_rollover_and_boundaries(void)
 static void test_command_snapshot_and_stale_publication(void)
 {
     reset_fixture(true);
-    regs[REG_GOAL_POSITION_DEG_L] = 0x34;
-    regs[REG_GOAL_POSITION_DEG_H] = 0x12;
-    regs[REG_GOAL_TORQUE_CURRENT_MA_L] = 0xFE;
-    regs[REG_GOAL_TORQUE_CURRENT_MA_H] = 0xFF;
-    ServoCommand const command = Servo_Get_Command();
-    CHECK(command.enabled && command.position_tenths_deg == 0x1234 && command.torque_mA == -2,
+    ServoCommand const goal = { .position_tenths_deg = 0x1234, .torque_mA = -2 };
+    Drive_Submit_Command(&goal);
+    DriveCommandSnapshot const command = Drive_Get_Command();
+    CHECK(command.enabled && command.goal.position_tenths_deg == 0x1234 && command.goal.torque_mA == -2,
           "foreground takes a signed coherent command snapshot");
     regs[REG_GOAL_POSITION_DEG_L] = regs[REG_GOAL_POSITION_DEG_H] = 0;
-    CHECK(command.position_tenths_deg == 0x1234, "later RX does not alter snapshot");
-    CHECK(Servo_Publish_Currents(&command, true, 123, -45), "current snapshot can publish");
+    CHECK(command.goal.position_tenths_deg == 0x1234, "later RX does not alter snapshot");
+    CHECK(Drive_Get_Command().goal.position_tenths_deg == 0x1234, "register mirrors do not own the live command");
+    CHECK(Drive_Publish_Currents(&command, true, 123, -45), "current snapshot can publish");
     CHECK(enable_count == 1 && current_updates == 1 && published_torque == 123 && published_flux == -45,
           "new ARM initializes FOC and publishes the complete current pair");
 
-    Servo_Disarm();
-    CHECK(!Servo_Publish_Currents(&command, true, 999, 999), "DISARM rejects an in-flight calculation");
+    Drive_Disarm();
+    CHECK(!Drive_Publish_Currents(&command, true, 999, 999), "DISARM rejects an in-flight calculation");
     memset(pending_data, 0xFF, 8);
     receive();
-    CHECK(!Servo_Publish_Currents(&command, true, 999, 999), "rearm rejects the preceding ARM generation");
+    CHECK(!Drive_Publish_Currents(&command, true, 999, 999), "rearm rejects the preceding ARM generation");
     CHECK(current_updates == 1, "stale computations never publish");
-    ServoCommand const rearmed = Servo_Get_Command();
-    CHECK(Servo_Publish_Currents(&rearmed, true, 12, 0), "fresh rearm generation publishes");
+    DriveCommandSnapshot const rearmed = Drive_Get_Command();
+    CHECK(Drive_Publish_Currents(&rearmed, true, 12, 0), "fresh rearm generation publishes");
     CHECK(enable_count == 2 && current_updates == 2, "rearm resets FOC exactly once");
+}
+
+static void test_typed_views_and_supervisor_policy(void)
+{
+    reset_fixture(false);
+    DriveStatus status = Drive_Get_Status();
+    CHECK(status.state == DRIVE_DISARMED && !status.armed, "supervisor starts disarmed");
+    DriveConfig const config = control_read_config();
+    CHECK(config.min_position_deg == -180 && config.max_position_deg == 180 && config.max_current_mA == 500,
+          "configuration adapter preserves signed units and bench defaults");
+
+    DriveMeasurements measurements = {
+        .position_deg = 123.45f, .velocity_dps = -20.75f,
+        .torque_mA = -500, .flux_mA = 123, .voltage_V = 24, .temperature_C = 30, .moving = true
+    };
+    Drive_Publish_Measurements(&measurements);
+    measurements.position_deg = 0;
+    status = Drive_Get_Status();
+    CHECK(fabsf(status.measured.position_deg - 123.45f) < 0.001f && status.measured.torque_mA == -500,
+          "status owns a copy of typed measurements");
+    CHECK((int16_t)MAKE_SHORT(regs[REG_PRESENT_POSITION_DEG_L], regs[REG_PRESENT_POSITION_DEG_H]) == 1234,
+          "typed status retains legacy telemetry scaling");
+    memset(pending_data, 0, 8);
+    receive();
+    CHECK(last_reply_id == 0x11 && (int16_t)MAKE_SHORT(last_reply[0], last_reply[1]) == 1234 &&
+          (int16_t)MAKE_SHORT(last_reply[2], last_reply[3]) == -500,
+          "typed status produces the unchanged four-byte CAN reply");
+
+    CHECK(Drive_Begin_Maintenance(false), "disarmed maintenance entry succeeds");
+    CHECK(Drive_Get_Status().state == DRIVE_MAINTENANCE && Drive_Is_Maintenance(), "maintenance has one owner");
+    CHECK(!Drive_Request_Arm(), "maintenance blocks ARM");
+    CHECK(hardware_fault_status() == (1U << HW_ERROR_BIT_CONFIGURATION), "rejected maintenance ARM retains fault semantics");
+    Drive_End_Maintenance();
+    hardware_fault_clear(1U << HW_ERROR_BIT_CONFIGURATION);
+    CHECK(Drive_Request_Arm() && Drive_Get_Status().state == DRIVE_ARMED, "ARM succeeds after maintenance ends and fault clears");
+    CHECK(!Drive_Begin_Maintenance(false) && can_armed, "ordinary configuration cannot disarm an active servo");
+    calibration_calls = 0;
+    CHECK(Drive_Run_Calibration() == 3 && calibration_calls == 0 && can_armed,
+          "armed calibration request is rejected without touching FOC");
+    CHECK(Drive_Begin_Maintenance(true) && !can_armed, "reset maintenance disarms before persistence");
+    CHECK(Drive_Run_Calibration() == 3 && calibration_calls == 0, "maintenance rejects calibration");
+    Drive_End_Maintenance();
+    CHECK(Drive_Run_Calibration() == 0 && calibration_calls == 1, "disarmed calibration forwards through the supervisor");
+    mock_calibrating = true;
+    CHECK(Drive_Get_Status().state == DRIVE_CALIBRATING && !Drive_Is_Disarmed(), "FOC job state is visible through the supervisor");
+    CHECK(!Drive_Begin_Maintenance(false), "calibration excludes configuration maintenance");
+    mock_calibrating = false;
+    CHECK(Drive_Request_Arm(), "arm before asynchronous fault");
+    hardware_fault_set(1U << HW_ERROR_BIT_OVERLOAD);
+    CHECK(Drive_Get_Status().state == DRIVE_FAULT && !Drive_Get_Command().enabled, "fault immediately inhibits command publication");
+    Drive_Service();
+    CHECK(!can_armed && !regs[REG_TORQUE_ENABLE], "foreground service revokes permission after a fault");
+    hardware_fault_clear(0xff);
+    CHECK(Drive_Get_Status().state == DRIVE_DISARMED, "fault clear does not automatically rearm");
+    test_primask = 1;
+    Drive_Disarm();
+    CHECK(test_primask == 1, "supervisor preserves an existing critical section");
+    test_primask = 0;
 }
 
 int main(int argc, char **argv)
@@ -304,7 +361,7 @@ int main(int argc, char **argv)
         memset(pending_data, 0xff, 8);
         receive();
         CHECK(!can_armed && !regs[REG_TORQUE_ENABLE], "ARM rejects invalid or out-of-limit initial position");
-        CHECK(can_last_time == 17 && can_arm_generation == 0, "rejected ARM has no enable or watchdog effect");
+        CHECK(can_last_time == initial_command_ms && can_arm_generation == 0, "rejected ARM has no enable or watchdog effect");
     }
     const char *suite = argc > 1 ? argv[1] : "all";
     if (strcmp(suite, "all") == 0 || strcmp(suite, "strict") == 0) {
@@ -316,6 +373,7 @@ int main(int argc, char **argv)
         test_disarm_and_rearm();
         test_watchdog_rollover_and_boundaries();
         test_command_snapshot_and_stale_publication();
+        test_typed_views_and_supervisor_policy();
     }
     printf("CAN callback: %u assertions, %u failures\n", assertions, failures);
     return failures ? 1 : 0;
