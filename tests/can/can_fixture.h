@@ -9,9 +9,11 @@
 #include "foc.h"
 #include "drive.h"
 #include "telemetry.h"
+#include "can_servo.h"
 
 
 FDCAN_HandleTypeDef hfdcan1;
+static FDCAN_HandleTypeDef *expected_can_handle = &hfdcan1;
 uint32_t test_primask;
 
 static unsigned failures;
@@ -19,6 +21,8 @@ static unsigned assertions;
 static unsigned tx_count;
 static uint8_t last_reply[4];
 static uint32_t last_reply_id;
+static FDCAN_TxHeaderTypeDef last_reply_header;
+static HAL_StatusTypeDef tx_status;
 static unsigned calibration_calls;
 static unsigned disable_count;
 static unsigned enable_count, current_updates;
@@ -26,6 +30,8 @@ static float published_torque, published_flux;
 static unsigned pending_rx;
 static unsigned receive_buffer_too_small;
 static unsigned rx_read_calls;
+static unsigned fifo_fill_calls;
+static size_t receive_capacity;
 static unsigned fail_rx_read;
 static unsigned refill_rx;
 static uint32_t mock_tick;
@@ -58,19 +64,20 @@ uint32_t API_FOC_Get_Timestamp_ms(void) {
 }
 uint32_t HAL_FDCAN_GetRxFifoFillLevel(FDCAN_HandleTypeDef *handle, uint32_t fifo)
 {
-    (void)handle;
-    (void)fifo;
+    if (handle != expected_can_handle || fifo != FDCAN_RX_FIFO0) ++failures;
+    ++fifo_fill_calls;
     return pending_rx;
 }
 HAL_StatusTypeDef HAL_FDCAN_AddMessageToTxFifoQ(FDCAN_HandleTypeDef *handle,
                                               FDCAN_TxHeaderTypeDef *header,
                                               uint8_t *data)
 {
-    (void)handle;
+    if (handle != expected_can_handle) ++failures;
     last_reply_id = header->Identifier;
+    last_reply_header = *header;
     memcpy(last_reply, data, sizeof last_reply);
     ++tx_count;
-    return HAL_OK;
+    return tx_status;
 }
 
 #define CHECK(condition, label) do { \

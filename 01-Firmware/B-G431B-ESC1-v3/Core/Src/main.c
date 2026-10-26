@@ -30,11 +30,10 @@
 #include "eeprom.h"
 #include "protocol.h"
 #include "control_table.h"
-#include "binary_tool.h"
+#include "can_servo.h"
 #include "telemetry.h"
 #include "drive.h"
 #include <math.h>
-#include <string.h>
 
 /* USER CODE END Includes */
 
@@ -98,14 +97,6 @@ DMA_HandleTypeDef hdma_usart2_tx;
 // serial communication
 HAL_Serial_Handler serial;
 
-// CAN transport buffers. Application state belongs to drive.c.
-static FDCAN_RxHeaderTypeDef RxHeader;
-/* HAL copies the DLC-derived byte count before software validation. */
-static uint8_t RxData[64];
-static FDCAN_TxHeaderTypeDef TxHeader;
-static uint8_t TxData[8];
-
-
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -162,17 +153,6 @@ static void FDCAN_Config(void)
   HAL_GPIO_WritePin(CAN_TERM_GPIO_Port, CAN_TERM_Pin, GPIO_PIN_RESET); // RESET means no bus termination
 #endif
 
-  /* Prepare Tx Header */
-  TxHeader.Identifier = 0;
-  TxHeader.IdType = FDCAN_STANDARD_ID;
-  TxHeader.TxFrameType = FDCAN_DATA_FRAME;
-  TxHeader.DataLength = FDCAN_DLC_BYTES_8;
-  TxHeader.ErrorStateIndicator = FDCAN_ESI_ACTIVE;
-  TxHeader.BitRateSwitch = FDCAN_BRS_OFF;
-  TxHeader.FDFormat = FDCAN_CLASSIC_CAN;
-  TxHeader.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
-  TxHeader.MessageMarker = 0;
-
   /* Start the FDCAN module */
   if (HAL_FDCAN_Start(&hfdcan1) != HAL_OK)
   {
@@ -189,69 +169,7 @@ static void FDCAN_Config(void)
 // CAN IT on message receive
 void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 {
-  if (hfdcan != &hfdcan1 || (RxFifo0ITs & FDCAN_IT_RX_FIFO0_NEW_MESSAGE) == 0)
-  {
-    return;
-  }
-
-  /* Bound interrupt work to messages already queued at entry. */
-  uint32_t remaining = HAL_FDCAN_GetRxFifoFillLevel(hfdcan, FDCAN_RX_FIFO0);
-  while (remaining-- != 0)
-  {
-    if (HAL_FDCAN_GetRxMessage(hfdcan, FDCAN_RX_FIFO0, &RxHeader, RxData) != HAL_OK)
-    {
-      break;
-    }
-
-    /* The command protocol accepts one classic standard data-frame format. */
-    if (RxHeader.Identifier != regs[REG_ID] ||
-        RxHeader.IdType != FDCAN_STANDARD_ID ||
-        RxHeader.RxFrameType != FDCAN_DATA_FRAME ||
-        RxHeader.FDFormat != FDCAN_CLASSIC_CAN ||
-        RxHeader.BitRateSwitch != FDCAN_BRS_OFF ||
-        RxHeader.DataLength != FDCAN_DLC_BYTES_8)
-    {
-      continue;
-    }
-
-    bool const disarm = (RxData[0] == 0) && (RxData[1] == 0) &&
-        (RxData[2] == 0) && (RxData[3] == 0) &&
-        (RxData[4] == 0) && (RxData[5] == 0) &&
-        (RxData[6] == 0) && (RxData[7] == 0);
-    if (API_FOC_Is_Calibrating() && !disarm) continue;
-    if (disarm)
-    {
-      Drive_Disarm();
-    }
-    else if ((RxData[0] == 0xFF) && (RxData[1] == 0xFF) &&
-        (RxData[2] == 0xFF) && (RxData[3] == 0xFF) &&
-        (RxData[4] == 0xFF) && (RxData[5] == 0xFF) &&
-        (RxData[6] == 0xFF) && (RxData[7] == 0xFF))
-    {
-      if (!Drive_Request_Arm()) continue;
-    }
-    else
-    {
-      ServoCommand const command = {
-        .position_tenths_deg = (int16_t)MAKE_SHORT(RxData[0], RxData[1]),
-        .velocity_dps = (int16_t)MAKE_SHORT(RxData[2], RxData[3]),
-        .torque_mA = (int16_t)MAKE_SHORT(RxData[4], RxData[5]),
-        .pos_kp = RxData[6],
-        .pos_kd = RxData[7]
-      };
-      if (!Drive_Submit_Command(&command)) continue;
-    }
-    TxHeader.Identifier = 0x10 + regs[REG_ID];
-    TxHeader.DataLength = FDCAN_DLC_BYTES_4;
-    DriveStatus const status = Drive_Get_Status();
-    int16_t const position = telemetry_i16(status.measured.position_deg * 10.0f);
-    int16_t const torque = telemetry_i16(status.measured.torque_mA);
-    TxData[0] = LOW_BYTE(position);
-    TxData[1] = HIGH_BYTE(position);
-    TxData[2] = LOW_BYTE(torque);
-    TxData[3] = HIGH_BYTE(torque);
-    HAL_FDCAN_AddMessageToTxFifoQ(hfdcan, &TxHeader, TxData);
-  }
+  CanServo_OnRxFifo0(hfdcan, RxFifo0ITs);
 }
 
 /* USER CODE END 0 */
@@ -314,6 +232,7 @@ int main(void)
   API_FOC_Init();
   API_FOC_Service_Update();
   // Accept commands only after every motor-control dependency is initialized.
+  CanServo_Init(&hfdcan1);
   FDCAN_Config();
 //HAL_Serial_Print(&serial,"RESET!\n");
 

@@ -1,8 +1,9 @@
 # Professional firmware architecture
 
 Branch `professional`, based on `simplified` at `8629fd6`. The first increment
-introduced the typed model and drive supervisor; the second extracts the outer
-servo controller. Both preserve the selected firmware's motor behavior.
+introduced the typed model and drive supervisor; the second extracted the outer
+servo controller; the third extracts CAN handling. All preserve the selected
+firmware's motor behavior.
 
 ## Current boundaries
 
@@ -12,13 +13,15 @@ servo controller. Both preserve the selected firmware's motor behavior.
 | `drive.c` / `drive.h` | Private owner of arming, accepted command, generation, timestamp, maintenance permission and measured-status snapshot; ARM/DISARM, watchdog service and guarded current publication |
 | `control_table.c` | Legacy serial/flash register adapter, pure parameter validation, typed configuration reads, command/status mirrors |
 | `servo_controller.c` / `servo_controller.h` | Foreground-owned PD/filter history and arm-generation tracking; typed setpoint calculation and guarded publication through the drive supervisor |
-| `main.c` | Generated peripheral setup, CAN framing, foreground scheduling, sensor acquisition, controller invocation and diagnostic/status collection |
+| `can_servo.c` / `can_servo.h` | Bound FDCAN handle, private transport buffers, bounded FIFO draining, frame validation, typed command dispatch and four-byte feedback encoding |
+| `main.c` | Generated peripheral setup, CAN filters/transceiver/start, HAL callback forwarding, foreground scheduling, sensor acquisition, controller invocation and diagnostic/status collection |
 | `foc.c` | Existing FOC modes, current regulation, current/ADC protection, immediate coast, shared FOC watchdog and blocking calibration trajectory |
 | `protocol.c` | Serial framing/register requests and persistence, acquiring/releasing maintenance through the supervisor |
 
 ```mermaid
 flowchart TD
-    CAN[CAN callback / framing] -->|typed ServoCommand| Drive[Drive supervisor]
+    Callback[HAL RX callback] --> CAN[CAN servo transport]
+    CAN -->|typed ServoCommand| Drive[Drive supervisor]
     Drive -->|command snapshot and generation| Main[Foreground scheduler]
     Config[Register / configuration adapter] -->|typed DriveConfig| Main
     Main -->|command, config and motor sample| Servo[Outer servo controller]
@@ -42,6 +45,16 @@ view, not a replacement for FOC's internal modes or a new CAN telemetry format.
 
 - `Drive_Init` runs after runtime-register reset and before ADC/CAN reception.
   It starts disarmed and clears command history.
+- `CanServo_Init` binds the transport after FOC initialization/service and before
+  FDCAN start/notifications. Peripheral setup, filters and transceiver pins remain
+  in `main.c`; the HAL receive callback only forwards to `CanServo_OnRxFifo0`.
+  Initialization and FIFO processing do not own arming or watchdog state.
+- The CAN module accepts callbacks only for its initialized controller and the
+  FIFO0 new-message event. It drains at most the FIFO entries present at entry,
+  stopping on HAL receive failure. Its private receive buffer holds all 64 bytes
+  HAL may copy before an unsupported FD frame/DLC is rejected.
+- CAN command acceptance precedes feedback queuing, as before. A full/failed TX
+  queue does not undo the command, delay DISARM, retry or extend receive work.
 - ARM, DISARM, command submission, reads, watchdog decisions and current
   publication use short critical sections that restore the caller's IRQ mask.
   They can run from foreground or CAN receive context. No dynamic allocation or
@@ -82,7 +95,7 @@ register addresses, single-page flash layout, parameter limits, 1000 ms CAN and
 policy and calibration trajectory remain the baseline behavior. The derivative
 is still per sample and CAN commands still supply zero velocity gain.
 
-FOC and encoder internals still read some legacy registers. CAN framing and
+FOC and encoder internals still read some legacy registers. Peripheral setup and
 foreground scheduling still live in `main.c`. Calibration remains blocking. These are
 recorded later increments in the [roadmap](professional-roadmap.md), not hidden
 claims of a completed application-wide rewrite. The earlier illustrated guide
@@ -90,13 +103,17 @@ shows the baseline integration; this document describes the new extraction.
 
 ## Verification
 
-The CAN integration suite now links the real `drive.c` and `control_table.c` as
-separate production translation units. Its original malformed-frame, watchdog,
-ARM/DISARM and generation cases remain, with new checks for authoritative typed
-commands, copied status, unchanged feedback encoding, maintenance, calibration
-entry, fault transitions and IRQ-mask preservation. No test includes or mutates
-the supervisor's private state. Telemetry tests also link the real register
-adapter. Existing FOC/calibration/sensor and serial regressions remain in place.
+The CAN integration suite links the real `can_servo.c`, `drive.c` and
+`control_table.c` as separate production translation units, at `-O0` and `-O2`.
+Only the thin main.c HAL adapter and existing FOC watchdog are extracted into
+the fixture. Original malformed-frame, watchdog, ARM/DISARM and generation cases
+remain, together with typed ownership, feedback, maintenance, calibration entry,
+fault and IRQ-mask checks. Added transport checks cover uninitialized/controller
+binding, complete TX framing, signed/saturated/NaN feedback and queue failures.
+The HAL mock observes receive capacity with GCC/Clang object-size instrumentation
+at the call boundary; no test includes or mutates private CAN/supervisor state.
+Startup tests also check binding before CAN start. Telemetry tests link the real
+register adapter. FOC/calibration/sensor and serial regressions remain in place.
 
 The servo suite links production `servo_controller.c`, `drive.c`,
 `control_table.c`, `pic.c` and `math_tool.c` directly. Numerical expectations and
@@ -109,7 +126,7 @@ tests do not include implementation source or modify private controller state.
 Validated on 2026-10-26:
 
 - All twelve host regression suites passed with native GCC 4.7.0, including
-  265 CAN/supervisor assertions and 276 servo assertions at each of `-O0` and
+  287 CAN/supervisor assertions and 276 servo assertions at each of `-O0` and
   `-O2`, with zero failures.
 - Fresh ARM GCC 14.3.1 builds passed at `-Og` and `-O2`. Both retain the
   existing linker warning about a load segment with RWX permissions.

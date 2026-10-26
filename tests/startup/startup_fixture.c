@@ -17,12 +17,12 @@ static TIM_TypeDef timer1, timer6;
 TIM_HandleTypeDef htim1 = { &timer1 }, htim6 = { &timer6 };
 ADC_HandleTypeDef hadc1, hadc2;
 OPAMP_HandleTypeDef hopamp1, hopamp2, hopamp3;
-int huart2, serial;
+int huart2, serial, hfdcan1;
 uint32_t ADC1_DMA[5], ADC2_DMA[3];
 uint8_t regs[1];
 #define REG_TORQUE_ENABLE 0
 static bool configuration_loaded, ram_reset, sensor_ready, cordic_ready;
-static bool foc_ready, service_ready, serial_ready, can_ready;
+static bool foc_ready, service_ready, serial_ready, can_ready, can_transport_ready;
 static unsigned adc_callbacks;
 static bool mock_button_down;
 static bool mock_servo_disarmed = true;
@@ -74,9 +74,15 @@ static void HAL_Serial_Init(int *uart, int *handler) { (void)uart; (void)handler
 static int positionSensor_init(void) { sensor_ready = true; return 1; }
 static void positionSensor_update(void) { assert(sensor_ready); }
 static void API_FOC_Service_Update(void) { assert(foc_ready); service_ready = true; }
+static void CanServo_Init(int *controller)
+{
+    assert(controller == &hfdcan1 && !can_ready && service_ready);
+    can_transport_ready = true;
+}
 static void FDCAN_Config(void)
 {
     assert(sensor_ready && cordic_ready && foc_ready && service_ready && serial_ready);
+    assert(can_transport_ready);
     can_ready = true;
 }
 

@@ -21,20 +21,25 @@ $Compiler = $compilerCommand.Source
 $env:PATH = (Split-Path -Parent $Compiler) + [IO.Path]::PathSeparator + $env:PATH
 
 $source = [IO.File]::ReadAllText((Join-Path $firmwareRoot 'Core/Src/main.c'))
-$globals = [regex]::Match($source, '(?s)// CAN transport buffers.*?(?=/\* USER CODE END PV \*/)')
-$settings = [regex]::Matches($source, '(?m)^#define (?:CAN_COMMAND_TIMEOUT_MS|FOC_TIMEOUT_MS)\s+[^\r\n]+').Value -join "`n"
+# The main.c callback is only the HAL forwarding adapter. All CAN transport and
+# protocol behavior is linked from can_servo.c, not extracted into the fixture.
 $callback = [regex]::Match($source, '(?s)// CAN IT on message receive.*?(?=/\* USER CODE END 0 \*/)')
-if (!$globals.Success -or !$callback.Success) { throw 'Production CAN source markers were not found.' }
+if (!$callback.Success) { throw 'Production HAL forwarding callback was not found.' }
 $generated = Join-Path $buildRoot 'can_callback_test.c'
 $focSource = [IO.File]::ReadAllText((Join-Path $firmwareRoot 'Core/Src/foc.c'))
 $watchdog = [regex]::Match($focSource, '(?s)bool API_FOC_Check_Watchdog\(void\)\r?\n\{.*?\r?\n\}').Value
 if (!$watchdog) { throw 'Production FOC watchdog was not found.' }
-[IO.File]::WriteAllText($generated, "#include `"can_fixture.h`"`n" + $settings + "`n" + $globals.Value + "`n" + $watchdog + "`n" + $callback.Value + "`n#include `"can_tests.inc`"`n")
-$executable = Join-Path $buildRoot 'can_callback_test.exe'
-$compilerArgs = @('-std=c11', '-Wall', '-Wextra', '-Werror', '-O0',
-    '-I', (Join-Path $testRoot 'stubs'), '-I', $testRoot,
-    '-I', (Join-Path $firmwareRoot 'Core/Inc'), $generated, (Join-Path $firmwareRoot 'Core/Src/drive.c'), (Join-Path $firmwareRoot 'Core/Src/control_table.c'), '-o', $executable)
-& $Compiler @compilerArgs
-if ($LASTEXITCODE -ne 0) { throw "Native C compilation failed ($LASTEXITCODE)." }
-& $executable $Suite
-exit $LASTEXITCODE
+[IO.File]::WriteAllText($generated, "#include `"can_fixture.h`"`n" + $watchdog + "`n" + $callback.Value + "`n#include `"can_tests.inc`"`n")
+foreach ($optimization in @('O0', 'O2')) {
+    $executable = Join-Path $buildRoot "can_callback_test-$optimization.exe"
+    $compilerArgs = @('-std=c11', '-Wall', '-Wextra', '-Werror', "-$optimization",
+        '-I', (Join-Path $testRoot 'stubs'), '-I', $testRoot,
+        '-I', (Join-Path $firmwareRoot 'Core/Inc'), $generated,
+        (Join-Path $firmwareRoot 'Core/Src/can_servo.c'),
+        (Join-Path $firmwareRoot 'Core/Src/drive.c'),
+        (Join-Path $firmwareRoot 'Core/Src/control_table.c'), '-o', $executable)
+    & $Compiler @compilerArgs
+    if ($LASTEXITCODE -ne 0) { throw "Native C compilation failed ($optimization, $LASTEXITCODE)." }
+    & $executable $Suite
+    if ($LASTEXITCODE -ne 0) { throw "CAN regressions failed ($optimization, $LASTEXITCODE)." }
+}

@@ -89,11 +89,32 @@ limits, phase reversal and zero position-integral gain are preserved. No CAN
 field, rate, watchdog threshold, FOC or encoder implementation changed.
 The directly linked servo suite covers numerical behavior and publication races.
 
-Roadmap item 3 is still partial: CAN framing and foreground scheduling remain in
-`main.c`; configuration/persistence separation and low-level register coupling
-remain later increments. Blocking calibration, reproducible toolchain/CI, wider
-convention consistency and the earlier control/hardware decisions above also
-remain pending.
+Roadmap item 3 remains partial: foreground scheduling remains in `main.c`;
+configuration/persistence separation and low-level register coupling remain later
+increments. CAN handling is extracted in the third refactor below.
+
+## Third refactor: CAN transport and protocol handling
+
+`can_servo.c` owns the bound FDCAN handle, private receive/transmit buffers,
+bounded FIFO processing, command-frame validation/decoding and feedback encoding.
+`main.c` binds it before CAN start and forwards the HAL receive callback.
+Peripheral configuration, filters, transceiver pins and HAL start stay in
+`main.c`; drive policy and watchdog history remain in the supervisor.
+
+The 8-byte command format, reserved ARM/DISARM values, accepted identifiers and
+frame types, four-byte feedback, acceptance timestamps, calibration permissions
+and entry-time FIFO work bound are preserved. TX queue failure retains its
+existing behavior: no retries or command rollback, including immediate DISARM.
+
+Tests link the production CAN module directly and exercise binding, private
+receive capacity, reply metadata/encoding and TX failures alongside the existing
+malformed-frame, watchdog and supervisor regressions, at both host optimizations.
+All twelve regression suites and ARM builds at `-Og`/`-O2` pass.
+
+Next planned work is reproducible toolchain setup and CI, then foreground
+scheduling separation. Blocking calibration, remaining register coupling,
+configuration/persistence separation, wider convention consistency and the
+earlier control/hardware decisions above remain pending.
 
 ## Reference documents
 

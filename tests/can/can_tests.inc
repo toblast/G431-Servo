@@ -1,12 +1,12 @@
 /* This HAL mock follows the bundled driver's DLC-to-byte conversion. It checks
  * the production receive allocation before copying, so a regression reports a
  * failure without deliberately corrupting the host test process. */
-HAL_StatusTypeDef HAL_FDCAN_GetRxMessage(FDCAN_HandleTypeDef *handle, uint32_t fifo,
-                                        FDCAN_RxHeaderTypeDef *header, uint8_t *data)
+HAL_StatusTypeDef test_can_get_rx_message(FDCAN_HandleTypeDef *handle, uint32_t fifo,
+                                        FDCAN_RxHeaderTypeDef *header, uint8_t *data,
+                                        size_t capacity)
 {
     static const uint8_t dlc_to_bytes[16] = {0,1,2,3,4,5,6,7,8,12,16,20,24,32,48,64};
-    (void)handle;
-    (void)fifo;
+    if (handle != expected_can_handle || fifo != FDCAN_RX_FIFO0) ++failures;
     ++rx_read_calls;
     /* Keep the baseline's unbounded loop finite so it reports a test failure. */
     if (rx_read_calls > 100) { pending_rx = 0; return HAL_ERROR; }
@@ -16,9 +16,10 @@ HAL_StatusTypeDef HAL_FDCAN_GetRxMessage(FDCAN_HandleTypeDef *handle, uint32_t f
     if (refill_rx) ++pending_rx;
     *header = pending_header;
     size_t count = dlc_to_bytes[(header->DataLength >> 16U) & 15U];
-    if (count > sizeof(RxData)) {
+    receive_capacity = capacity;
+    if (capacity == (size_t)-1 || count > capacity) {
         receive_buffer_too_small = 1;
-        count = sizeof(RxData);
+        count = capacity == (size_t)-1 ? 0 : capacity;
     }
     memcpy(data, pending_data, count);
     return HAL_OK;
@@ -41,11 +42,16 @@ static void reset_fixture(bool armed)
     sensor_ready = true;
     mock_calibrating = false;
     Drive_Init();
+    CanServo_Init(&hfdcan1);
+    expected_can_handle = &hfdcan1;
     if (armed) { mock_tick = 17; Drive_Request_Arm(); }
     initial_command_ms = can_last_time;
     mock_tick = mock_foc_tick = 300;
     tx_count = disable_count = pending_rx = receive_buffer_too_small = 0;
     rx_read_calls = fail_rx_read = refill_rx = 0;
+    fifo_fill_calls = 0;
+    receive_capacity = 0;
+    tx_status = HAL_OK;
     enable_count = current_updates = 0;
     pending_header = (FDCAN_RxHeaderTypeDef){
         .Identifier = 1,
@@ -352,8 +358,84 @@ static void test_typed_views_and_supervisor_policy(void)
     test_primask = 0;
 }
 
+static void test_uninitialized_transport(void)
+{
+    // The module starts unbound, before any fixture calls CanServo_Init.
+    pending_rx = 1;
+    HAL_FDCAN_RxFifo0Callback(&hfdcan1, FDCAN_IT_RX_FIFO0_NEW_MESSAGE);
+    HAL_FDCAN_RxFifo0Callback(NULL, FDCAN_IT_RX_FIFO0_NEW_MESSAGE);
+    CHECK(pending_rx == 1 && fifo_fill_calls == 0 && rx_read_calls == 0,
+          "uninitialized transport ignores callbacks before touching HAL");
+    CHECK(tx_count == 0 && disable_count == 0, "uninitialized transport cannot change motor state or reply");
+}
+
+static void test_transport_binding_and_feedback(void)
+{
+    reset_fixture(true);
+    FDCAN_HandleTypeDef other = {0};
+    CanServo_Init(&other);
+    expected_can_handle = &other;
+    pending_rx = 1;
+    HAL_FDCAN_RxFifo0Callback(&hfdcan1, FDCAN_IT_RX_FIFO0_NEW_MESSAGE);
+    CHECK(pending_rx == 1 && fifo_fill_calls == 0 && rx_read_calls == 0,
+          "transport uses its supplied handle rather than a global controller");
+    HAL_FDCAN_RxFifo0Callback(&other, FDCAN_IT_RX_FIFO0_NEW_MESSAGE);
+    CHECK(pending_rx == 0 && tx_count == 1 && receive_capacity == 64,
+          "bound controller receives through private storage sized for all HAL DLCs");
+    CHECK(last_reply_header.IdType == FDCAN_STANDARD_ID &&
+          last_reply_header.TxFrameType == FDCAN_DATA_FRAME &&
+          last_reply_header.DataLength == FDCAN_DLC_BYTES_4,
+          "reply retains standard four-byte data framing");
+    CHECK(last_reply_header.FDFormat == FDCAN_CLASSIC_CAN &&
+          last_reply_header.BitRateSwitch == FDCAN_BRS_OFF &&
+          last_reply_header.ErrorStateIndicator == FDCAN_ESI_ACTIVE &&
+          last_reply_header.TxEventFifoControl == FDCAN_NO_TX_EVENTS &&
+          last_reply_header.MessageMarker == 0,
+          "reply retains classic CAN metadata initialized by the transport");
+
+    reset_fixture(false);
+    regs[REG_ID] = 7;
+    pending_header.Identifier = 7;
+    DriveMeasurements measurements = { .position_deg = -12.3f, .torque_mA = 456 };
+    Drive_Publish_Measurements(&measurements);
+    memset(pending_data, 0, 8);
+    receive();
+    CHECK(last_reply_id == 0x17 && last_reply[0] == 0x85 && last_reply[1] == 0xff &&
+          last_reply[2] == 0xc8 && last_reply[3] == 0x01,
+          "feedback retains configured ID, signed scaling and little-endian byte order");
+    measurements.position_deg = INFINITY;
+    measurements.torque_mA = -INFINITY;
+    Drive_Publish_Measurements(&measurements);
+    receive();
+    CHECK(last_reply[0] == 0xff && last_reply[1] == 0x7f &&
+          last_reply[2] == 0x00 && last_reply[3] == 0x80,
+          "feedback saturates both signed fields before encoding");
+    measurements.position_deg = measurements.torque_mA = NAN;
+    Drive_Publish_Measurements(&measurements);
+    receive();
+    CHECK(last_reply[0] == 0 && last_reply[1] == 0 && last_reply[2] == 0 && last_reply[3] == 0,
+          "feedback maps nonfinite NaN measurements to zero");
+
+    reset_fixture(false);
+    tx_status = HAL_ERROR;
+    memset(pending_data, 0xff, 8);
+    receive();
+    CHECK(can_armed && can_last_time == mock_tick && tx_count == 1,
+          "reply failure does not roll back an already accepted ARM");
+    pending_rx = 2;
+    memset(pending_data, 1, 8);
+    HAL_FDCAN_RxFifo0Callback(&hfdcan1, FDCAN_IT_RX_FIFO0_NEW_MESSAGE);
+    CHECK(pending_rx == 0 && rx_read_calls == 3 && tx_count == 3,
+          "reply failure neither retries nor interrupts bounded receive draining");
+    memset(pending_data, 0, 8);
+    receive();
+    CHECK(!can_armed && disable_count == 1 && tx_count == 4,
+          "DISARM remains immediate when the reply cannot be queued");
+}
+
 int main(int argc, char **argv)
 {
+    test_uninitialized_transport();
     const float rejected_positions[] = { NAN, INFINITY, -INFINITY, 181, -181, 40000 };
     for (unsigned i = 0; i < sizeof rejected_positions / sizeof *rejected_positions; ++i) {
         reset_fixture(false);
@@ -374,6 +456,7 @@ int main(int argc, char **argv)
         test_watchdog_rollover_and_boundaries();
         test_command_snapshot_and_stale_publication();
         test_typed_views_and_supervisor_policy();
+        test_transport_binding_and_feedback();
     }
     printf("CAN callback: %u assertions, %u failures\n", assertions, failures);
     return failures ? 1 : 0;

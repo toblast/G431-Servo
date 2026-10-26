@@ -2,6 +2,7 @@
 #define CAN_TEST_HAL_H
 
 #include <stdint.h>
+#include <stddef.h>
 
 typedef enum { HAL_OK = 0, HAL_ERROR = 1 } HAL_StatusTypeDef;
 typedef struct { unsigned unused; } FDCAN_HandleTypeDef;
@@ -27,13 +28,19 @@ typedef struct {
 #define FDCAN_BRS_ON 0x00100000U
 #define FDCAN_DLC_BYTES_4 0x00040000U
 #define FDCAN_DLC_BYTES_8 0x00080000U
+#define FDCAN_ESI_ACTIVE 0x00000000U
+#define FDCAN_NO_TX_EVENTS 0x00000000U
 #define FDCAN_IT_RX_FIFO0_NEW_MESSAGE 1U
 #define FDCAN_RX_FIFO0 0U
 
 uint32_t HAL_GetTick(void);
 uint32_t HAL_FDCAN_GetRxFifoFillLevel(FDCAN_HandleTypeDef *, uint32_t);
-HAL_StatusTypeDef HAL_FDCAN_GetRxMessage(FDCAN_HandleTypeDef *, uint32_t,
-                                       FDCAN_RxHeaderTypeDef *, uint8_t *);
+/* Observe the production allocation at the HAL call boundary without exposing
+ * private module state. GCC/Clang know the size of its static receive array. */
+HAL_StatusTypeDef test_can_get_rx_message(FDCAN_HandleTypeDef *, uint32_t,
+                                        FDCAN_RxHeaderTypeDef *, uint8_t *, size_t);
+#define HAL_FDCAN_GetRxMessage(handle, fifo, header, data) \
+    test_can_get_rx_message(handle, fifo, header, data, __builtin_object_size(data, 1))
 HAL_StatusTypeDef HAL_FDCAN_AddMessageToTxFifoQ(FDCAN_HandleTypeDef *,
                                              FDCAN_TxHeaderTypeDef *, uint8_t *);
 
