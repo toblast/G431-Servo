@@ -25,11 +25,14 @@ Caller/return/unit conventions are in [firmware-conventions.md](../docs/firmware
 | configuration | Directly linked validation/service/storage and adapters; defaults, pure validation, typed views, image size/runtime exclusion, load/save failures, staged writes, permissions/reset guard lifetime, reserved bytes, fault flags and IRQ preservation at `-O0`/`-O2` |
 | fatal | Six production fatal handlers disable MOE before halting |
 | cordic | Bounded polling, invalid angles, Q31 boundary, failure in every FOC state and successful typed FOC gain/angle scaling with live configuration changes |
+| integration | Sixteen real modules plus extracted FOC guards at `-O0`/`-O2`; CAN -> App/controller/current handoff, faults/rollover, stale calculations, acquisition preemption, calibration ownership/completion/storage, real serial/configuration/reset interlocks; see [integration checks](integration/README.md) |
 
 The tests include production C files/headers or extract complete functions from
 the saved sources. They mock peripherals; they do not reproduce the control
 algorithm in a separate implementation. Some tests include private state to
 inject faults and exercise interrupt boundaries deterministically.
+The [post-refactor audit](../docs/professional-regression-audit.md) records the
+baseline comparison, integration coverage and remaining hardware limits.
 
 These checks do not establish physical PWM levels, interrupt execution time,
 I2C/CAN timing, current-sense accuracy or motor stability. Follow the

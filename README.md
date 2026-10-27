@@ -37,7 +37,9 @@ system, control loops, execution contexts and state transitions. See the
 See the [drive contract and bench checklist](docs/servo-drive.md),
 [audit findings and patch plan](docs/simplified-audit.md),
 [system architecture](docs/system-architecture.md) and
-[regression instructions](tests/README.md).
+[regression instructions](tests/README.md). The
+[post-refactor audit](docs/professional-regression-audit.md) records the baseline
+comparison and tests across real application/module boundaries.
 
 Build with GNU Make and an Arm GNU bare-metal compiler on `PATH`:
 

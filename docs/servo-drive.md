@@ -89,9 +89,10 @@ The 3 V trajectory retains 200 ms initial coast, 100 ms initial settling,
 and 1000 ms final alignment. Late foreground passes extend these dwells rather
 than skipping targets. Endpoint capture waits for a subsequent normal acquisition
 after settling. Completion is printed once by the foreground application.
-Configuration writes/reset/reboot received during motion return their existing
-busy error. The final flash save remains synchronous with IRQs enabled while
-coasting and ARM remains blocked through save/cleanup. Cancellation during a save
+Configuration writes received during motion return the existing serial access
+error. Factory-reset/reboot requests are ignored without a reply while the
+calibration guard is active. The final flash save remains synchronous with IRQs
+enabled while coasting and ARM remains blocked through save/cleanup. Cancellation during a save
 restores RAM alignment and reports cancellation, but cannot undo flash writes
 already performed; storage failure retains result 4 and the internal fault.
 

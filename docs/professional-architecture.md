@@ -199,7 +199,9 @@ the result without blocking on the motion sequence.
 
 The active guard excludes ARM and configuration maintenance until all cleanup,
 result publication and storage finish. Serial reads/diagnostics continue during
-motion; writes, reset and reboot now encounter the existing busy interlock.
+motion; configuration writes return the serial access error while calibration
+excludes maintenance. Factory-reset/reboot requests are ignored without a reply
+during calibration; no new serial busy status is defined.
 The final `Config_Save` is synchronous with IRQs enabled while coasting. A
 cancellation arriving during that save is reported and restores RAM, but cannot
 roll back a flash write already performed. Storage failure retains code 4 and
@@ -277,11 +279,21 @@ and storage, FOC loss, no motion/pole mismatch, storage failure, IRQ restoration
 rollback and completion consumption. The job never invokes acquisition or
 protection service itself.
 
+The [integration suite](../tests/integration/README.md) now links sixteen real
+modules together at `-O0`/`-O2`, covering the CAN/App/controller/calibration and
+configuration/serial handoffs with actual AS5600 acquisition. FOC permission,
+cancellation and watchdog functions are extracted intact; hardware and the fast
+ADC/current/PWM execution are modeled or covered separately. The
+[post-refactor audit](professional-regression-audit.md) records the baseline
+comparison, confirmed documentation correction and nine integration scenario
+groups, including CAN interrupts during acquisition/save and stale calculations.
+
 Validated on 2026-10-27:
 
-- All thirteen host regression suites passed with native GCC 4.7.0, including
+- All fourteen host regression suites passed with native GCC 4.7.0, including
   287 CAN/supervisor, 276 servo and 71 application assertions at each of `-O0`
-  and `-O2`, with zero failures.
+  and `-O2`, plus nine integration scenario groups at both optimizations, with
+  zero failures.
 - Fresh ARM GCC 14.3.1 builds passed at `-Og` and `-O2`. Both retain the
   existing linker warning about a load segment with RWX permissions.
 - The conventions pass changes API/field names, sensor boolean declarations and

@@ -268,8 +268,9 @@ Each endpoint capture waits for a subsequent normal acquisition after settling.
 Delayed passes extend a dwell instead of publishing a burst of targets. DISARM,
 encoder faults and FOC loss cancel; failures restore the original RAM alignment.
 ARM/configuration maintenance stay excluded through cleanup and persistence.
-Serial requests now execute during motion, so writes/reset/reboot return their
-existing busy error instead of waiting until calibration has finished.
+Serial requests now execute during motion: configuration writes return the
+existing access error; reset/reboot requests are ignored without a reply while
+the calibration guard is active. They no longer wait for motion to finish.
 
 The final whole-image flash save remains synchronous while coasting; I2C reads
 also retain their synchronous implementation. No asynchronous flash driver or
@@ -309,6 +310,24 @@ and type cleanup; all thirteen suites and ARM builds at `-Og`/`-O2` pass. No
 new tooling or hardware validation claim is introduced. The software roadmap is
 complete; bench measurements and deferred policy decisions remain pending.
 
+## Post-refactor regression audit and integration checks
+
+Compared baseline `8629fd6` with the completed refactors at `d347de1`, focusing
+on startup, arithmetic/scales, permissions/generations, watchdogs, configuration
+exclusion and calibration/fault completion. No confirmed firmware regression was
+identified by the scoped review and tests. Corrected one documentation mismatch:
+calibration rejects serial configuration writes with access error, while
+factory-reset/reboot requests are ignored without a reply.
+
+Added nine integration scenario groups linking sixteen real modules and extracted
+FOC guards at `-O0`/`-O2`, using the existing native compiler/runner. They exercise
+CAN/App/controller and calibration/encoder/configuration/serial handoffs, selected
+interrupt arrivals, rollover, faults and storage/reset guards. All fourteen
+regression suites and fresh ARM builds at `-Og`/`-O2` pass. No production firmware
+change or new tooling was needed. Details and limitations are in the
+[regression audit](professional-regression-audit.md); bench validation and the
+deferred control/reliability decisions above remain pending.
+
 ## Reference documents
 
 - [Current drive contract](servo-drive.md)
@@ -316,3 +335,4 @@ complete; bench measurements and deferred policy decisions remain pending.
 - [Firmware pseudocode](firmware-pseudocode.md), recorded for the baseline
 - [Regression suites](../tests/README.md)
 - [Firmware conventions](firmware-conventions.md)
+- [Post-refactor regression audit](professional-regression-audit.md)
