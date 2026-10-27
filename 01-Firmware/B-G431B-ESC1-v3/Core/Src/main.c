@@ -31,6 +31,7 @@
 #include "control_table.h"
 #include "can_servo.h"
 #include "drive.h"
+#include "drive_mode.h"
 
 /* USER CODE END Includes */
 
@@ -199,7 +200,7 @@ int main(void)
   MX_OPAMP3_Init();
   MX_CORDIC_Init();
   MX_TIM6_Init();
-  MX_FDCAN1_Init();
+  if (!DRIVE_STANDALONE) MX_FDCAN1_Init();
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
 	if (HAL_TIM_Base_Start(&htim6) != HAL_OK) Error_Handler(); // 1us base time
@@ -218,8 +219,10 @@ int main(void)
   API_FOC_Init();
   API_FOC_Service_Update();
   // Accept commands only after every motor-control dependency is initialized.
-  CanServo_Init(&hfdcan1);
-  FDCAN_Config();
+  if (!DRIVE_STANDALONE) {
+    CanServo_Init(&hfdcan1);
+    FDCAN_Config();
+  }
   App_Init(&htim6, &serial);
 //HAL_Serial_Print(&serial,"RESET!\n");
 
@@ -920,6 +923,10 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(BUTTON_GPIO_Port, &GPIO_InitStruct);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
+#if DRIVE_STANDALONE
+  // No external servo-command device is used in this mode.
+  HAL_GPIO_WritePin(CAN_SHDN_GPIO_Port, CAN_SHDN_Pin, GPIO_PIN_SET);
+#endif
 /* USER CODE END MX_GPIO_Init_2 */
 }
 

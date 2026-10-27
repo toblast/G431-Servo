@@ -9,16 +9,18 @@ for a 2015 Kawasaki Ninja 300.
 
 The current working branch is:
 
-    professional
+    standalone
 
-This branch starts from `simplified` and improves software ownership, module
-boundaries and testability through small behavior-preserving refactors. The
-simplification goals and hardware/control constraints below remain applicable.
-The saved roadmap is `docs/professional-roadmap.md`.
+This branch starts from `professional` and explicitly moves motorcycle input
+acquisition and road-speed PID into the STM32G431 at the user's request.
+The saved STM32 roadmap is `docs/professional-roadmap.md`; local cruise behavior
+and the remaining hardware work are documented in `docs/standalone.md`.
 
-The STM32G431 motor controller is only the local servo drive.
-
-A separate ESP32-WROOM-32D is the high-level cruise-control controller.
+The STM32G431 owns both local cruise control and the existing servo drive.
+No ESP32 is required on this branch. Preserve FOC, current control, encoder
+acquisition and the motor position PD loop. The road-speed PID runs separately
+in foreground; input interrupts perform only integer pulse counting.
+Default source configuration is deliberately incomplete and cannot engage.
 
 ---
 
@@ -74,9 +76,9 @@ The STM32G431 is responsible for:
 
 ## High-level controller
 
-ESP32-WROOM-32D.
+The STM32G431 also performs the high-level functions on this branch.
 
-The ESP32 is responsible for:
+The local cruise application is responsible for:
 
 - motorcycle speed measurement
 - cruise-control logic
@@ -84,11 +86,16 @@ The ESP32 is responsible for:
 - brake input
 - clutch input
 - desired throttle-position calculation
-- communication with the STM32 servo drive over CAN
+- local position-command submission through the existing drive supervisor
 
-The ESP32 must not perform FOC.
+The road-speed controller must not write PWM or FOC current setpoints directly.
 
 ## CAN physical layer
+
+The following external-controller arrangement is retained for the
+`STANDALONE=0` compatibility build. The default `STANDALONE=1` build does not
+initialize/start CAN and asserts transceiver shutdown. CAN ARM/servo messages
+are also rejected defensively in standalone mode; DISARM may still cancel.
 
 ESP32 CAN controller:
 
@@ -107,19 +114,19 @@ The STM32 drive communicates with the ESP32 over CAN.
 The STM32 motor drive should behave conceptually like a small industrial servo
 drive.
 
-The ESP32 sends a servo command.
+The local cruise controller submits a servo command through Drive.
 
 The STM32 performs all fast local motor control.
 
 Approximate control architecture:
 
     Motorcycle speed controller
-        ESP32
+        STM32 foreground
           |
           v
     desired throttle position
           |
-         CAN
+     Drive supervisor
           |
           v
     STM32 position controller
@@ -142,14 +149,15 @@ The existing outer servo controller is expected to behave approximately as:
 
 A position integral term is not required initially.
 
-The ESP32 may later use a calibrated throttle-spring feed-forward table:
+The local cruise application may later use a calibrated throttle-spring feed-forward table:
 
     throttle_angle -> Iq_feedforward
 
 This allows the feed-forward torque to approximately compensate for the
 throttle return spring while the PD controller handles the residual error.
 
-Do not add an integral controller unless specifically requested.
+Do not add a motor position integral. The explicitly requested road-speed PID
+has its own integral and anti-windup; these are separate loops.
 
 ---
 
@@ -377,18 +385,8 @@ Important bench tests include:
 
 # Scope boundaries
 
-This repository is the STM32 servo-drive firmware.
-
-It is not responsible for:
-
-- vehicle cruise-control PID
-- motorcycle speed measurement
-- brake logic
-- clutch logic
-- user-interface logic
-- motorcycle ECU communication
-
-Those functions belong to the ESP32 project unless explicitly moved later.
-
-Do not add motorcycle-specific high-level logic to this firmware without an
-explicit request.
+This branch contains the STM32 servo drive and the explicitly requested local
+motorcycle inputs, one-button cruise state machine and road-speed PID.
+Motorcycle ECU communication remains outside scope. GPIOs, polarities, wheel
+calibration, gains and actuator travel must be measured/selected explicitly.
+Do not hard-code an assumed final reduction or an unverified electrical input.

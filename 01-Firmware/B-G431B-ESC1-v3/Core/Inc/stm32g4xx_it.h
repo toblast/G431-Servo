@@ -65,6 +65,8 @@ void FDCAN1_IT0_IRQHandler(void);
 void USART2_IRQHandler(void);
 void CORDIC_IRQHandler(void);
 /* USER CODE BEGIN EFP */
+void EXTI9_5_IRQHandler(void);
+void EXTI15_10_IRQHandler(void);
 
 /* USER CODE END EFP */
 

@@ -33,7 +33,9 @@ $source = $fixture.Replace('/* FOC_INIT */', $focInit).Replace('/* STARTUP */', 
 $sourcePath = Join-Path $buildDirectory 'startup_tests.c'
 $executablePath = Join-Path $buildDirectory 'startup_tests.exe'
 [IO.File]::WriteAllText($sourcePath, $source)
-& $compilerCommand.Source -std=gnu99 -Wall -Wextra $sourcePath -o $executablePath
-if ($LASTEXITCODE -ne 0) { throw 'Startup regression compilation failed.' }
-& $executablePath
-if ($LASTEXITCODE -ne 0) { throw 'Startup regression failed.' }
+foreach ($mode in @(0, 1)) {
+    & $compilerCommand.Source -std=gnu99 -Wall -Wextra "-DDRIVE_STANDALONE=$mode" $sourcePath -o $executablePath
+    if ($LASTEXITCODE -ne 0) { throw "Startup compilation failed (standalone=$mode)." }
+    & $executablePath
+    if ($LASTEXITCODE -ne 0) { throw "Startup regression failed (standalone=$mode)." }
+}

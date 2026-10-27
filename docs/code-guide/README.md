@@ -1,5 +1,10 @@
 # Read the firmware from the beginning
 
+For branch `standalone`, also read the [standalone module/function guide](../standalone.md).
+The catalogue below remains a source snapshot of the `professional` baseline;
+the new local cruise modules and their application/interrupt hooks are described
+in that supplement.
+
 This guide is for someone who has not opened this codebase before. It describes
 the current **professional** firmware at source commit **f9c5c00**, including the
 completed refactors and regression audit. It adds no firmware behavior.

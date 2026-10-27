@@ -1,4 +1,11 @@
-# G431 servo drive — professional branch
+# G431 standalone cruise controller
+
+Branch `standalone` runs motorcycle input acquisition and the road-speed PID
+on the STM32G431 drive MCU, using the existing C toolchain. No ESP32 is needed.
+Read the [standalone setup, behavior and module guide](docs/standalone.md) first.
+The software path reaches the existing position controller through Drive;
+source settings remain deliberately unconfigured until wiring, speed calibration,
+gains and motor-shaft travel are established.
 
 **New to the codebase? Start with the [firmware reading guide](docs/code-guide/README.md).**
 It includes a reading route, module/function/call reference, type meanings and
@@ -20,13 +27,14 @@ The selected project is **`01-Firmware/B-G431B-ESC1-v3`**. Other firmware folder
 are upstream experiments and are outside this branch's validation.
 
 The STM32 owns commutation, FOC/current control, encoder acquisition, the outer
-servo loop and local faults. An ESP32 owns cruise control and sends commands
-over CAN. No vehicle speed, brake, clutch or cruise-control logic runs here.
+servo loop and local faults. On this branch it additionally reads conditioned
+speed/brake/clutch/button inputs and computes cruise position commands locally.
 
 - Power-up is DISARMED, with motor outputs disabled in coast mode.
-- Explicit 8-byte ARM and DISARM messages; one 8-byte servo command format.
-- Classic CAN, 11-bit IDs, 1 Mbit/s; default command ID `0x001`.
-- Invalid frames do not refresh the 1000 ms command watchdog.
+- Local engagement requires a fresh cruise-button press with valid inputs.
+- CAN is stopped in the default standalone build. The compatibility build
+  (`STANDALONE=0`) retains the 8-byte ARM/DISARM/servo protocol.
+- The 1000 ms drive command watchdog is refreshed by accepted local goals.
 - AS5600 only: SDA = PB7, SCL = PB8; failed reads preserve the last valid sample.
 - Existing Clarke/Park, PI current control and CSVPWM are retained.
 - Configured PWM/FOC rate: 40 kHz; outer loop target: 4 kHz; service: 100 Hz.

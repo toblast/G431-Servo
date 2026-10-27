@@ -3,6 +3,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <setjmp.h>
+#ifndef DRIVE_STANDALONE
+#define DRIVE_STANDALONE 0
+#endif
 
 #define assert(condition) do { if (!(condition)) { \
     fprintf(stderr, "Startup dependency check failed at line %d: %s\n", __LINE__, #condition); \
@@ -79,7 +82,8 @@ static void FDCAN_Config(void)
 }
 static void App_Init(TIM_HandleTypeDef *timer, int *handler)
 {
-    assert(timer == &htim6 && handler == &serial && can_ready && service_ready);
+    assert(timer == &htim6 && handler == &serial && service_ready);
+    assert(DRIVE_STANDALONE ? !can_ready : can_ready);
     app_ready = true;
 }
 
@@ -93,7 +97,8 @@ static void run_startup(void)
 int main(void)
 {
     run_startup();
-    assert(adc_callbacks == 2 && can_ready && app_ready);
+    assert(adc_callbacks == 2 && app_ready);
+    assert(DRIVE_STANDALONE ? !can_ready : can_ready);
     for (failure_step = 1; failure_step <= 7; ++failure_step) {
         step = 0;
         can_ready = false;
@@ -118,6 +123,7 @@ int main(void)
         assert(false);
     }
     assert(!can_ready && adc_callbacks == callbacks_before_load_failure);
-    puts("Startup dependencies, CAN/application initialization and peripheral/timebase failures passed.");
+    printf("Startup dependencies, %s initialization and peripheral/timebase failures passed.\n",
+           DRIVE_STANDALONE ? "standalone" : "CAN");
     return 0;
 }

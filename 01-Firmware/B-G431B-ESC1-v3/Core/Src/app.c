@@ -9,6 +9,10 @@
 #include "control_table.h"
 #include "protocol.h"
 #include "telemetry.h"
+#include "drive_mode.h"
+#if DRIVE_STANDALONE
+#include "standalone.h"
+#endif
 #include <math.h>
 
 #define SERVO_PERIOD_US 250U
@@ -28,6 +32,10 @@ void App_Init(TIM_HandleTypeDef *timer, HAL_Serial_Handler *serial)
     app.serial = serial;
     ServoController_Init();
     Calibration_Init();
+#if DRIVE_STANDALONE
+    if (!Standalone_Init(&standalone_config))
+        HAL_Serial_Print(serial, "Standalone cruise disabled: configure inputs, speed, PID and travel.\n");
+#endif
     // A button held at power-up must be released before it can request motion.
     app.calibration_button_was_down = true;
     uint16_t const now = __HAL_TIM_GET_COUNTER(timer);
@@ -108,6 +116,9 @@ static void service(void)
 void App_Process(void)
 {
     Drive_Service();
+#if DRIVE_STANDALONE
+    Standalone_Process();
+#endif
     uint16_t const now = __HAL_TIM_GET_COUNTER(app.timer);
     bool acquisition_serviced = false;
     uint16_t const servo_delta_us = now - app.servo_last_time_us;

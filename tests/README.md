@@ -26,6 +26,12 @@ Caller/return/unit conventions are in [firmware-conventions.md](../docs/firmware
 | fatal | Six production fatal handlers disable MOE before halting |
 | cordic | Bounded polling, invalid angles, Q31 boundary, failure in every FOC state and successful typed FOC gain/angle scaling with live configuration changes |
 | integration | Sixteen real modules plus extracted FOC guards at `-O0`/`-O2`; CAN -> App/controller/current handoff, faults/rollover, stale calculations, acquisition preemption, calibration ownership/completion/storage, real serial/configuration/reset interlocks; see [integration checks](integration/README.md) |
+| standalone | Twelve production modules with GPIO/EXTI mocks at `-O0`/`-O2`, both travel directions; pulse/time rollover, speed/PID arithmetic, local ARM/position command path, brake/clutch/fault/timeout/gap cancellation, held buttons and rejected CAN control; see [standalone checks](standalone/README.md) |
+
+The original suites exercise the CAN-controlled baseline. Startup additionally
+checks both build modes; the standalone suite sets `DRIVE_STANDALONE=1`.
+The branch Makefile defaults to `STANDALONE=1`; use a separate `BUILD_DIR` if
+building `STANDALONE=0` for comparison, so changed flags cannot reuse old objects.
 
 The tests include production C files/headers or extract complete functions from
 the saved sources. They mock peripherals; they do not reproduce the control

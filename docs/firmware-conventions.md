@@ -1,12 +1,16 @@
 # Firmware conventions
 
-Applies to `01-Firmware/B-G431B-ESC1-v3` on `professional`. Keep the existing
+Applies to `01-Firmware/B-G431B-ESC1-v3` on `professional` and `standalone`. Keep the existing
 Makefile and PowerShell regression runner; no extra development framework is
 required. Module responsibilities are in [professional-architecture.md](professional-architecture.md),
 the wire/operating contract in [servo-drive.md](servo-drive.md), and validation
 commands in [tests/README.md](../tests/README.md).
 
 ## Names and units
+
+The standalone supplement uses `_mps` for road speed and normalized `[0, 1]`
+throttle demand. Road-speed PID history belongs to `CruiseController`; motor
+position PD and FOC/current PI retain their original units and implementations.
 
 - Application/service APIs use `Module_Action`, with PascalCase after one
   underscore: `Drive_RequestArm`, `Config_ApplyRegisterWrite`, `App_Process`.

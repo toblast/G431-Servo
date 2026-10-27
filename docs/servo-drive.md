@@ -1,5 +1,10 @@
 # B-G431B-ESC1 + AS5600 drive contract
 
+On branch `standalone`, [local cruise control](standalone.md) supplies motor
+position commands through the same Drive supervisor. CAN startup is disabled;
+a fresh valid local button press requests ARM, and cancellation requests
+DISARM/coast. The CAN-specific operating rules below apply to `STANDALONE=0`.
+
 For diagrams of the control loops, code modules and runtime behavior, see the
 [visual architecture guide](architecture.md) or its [HTML edition](architecture.html).
 

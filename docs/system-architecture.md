@@ -1,5 +1,11 @@
 # Kawasaki Ninja 300 Cruise-Control System Architecture
 
+**Branch update:** `standalone` moves input acquisition, the one-button cruise
+state machine and the road-speed PID into the STM32G431. No external ESP32 or
+CAN command stream is required. See [standalone.md](standalone.md) for the active
+architecture and configuration. The ESP32/CAN arrangement below records the
+`professional` baseline and remains available as the compatibility build.
+
 For current firmware modules and caller contracts, start with the
 [professional architecture](professional-architecture.md) and
 [firmware conventions](firmware-conventions.md). The [visual architecture guide](architecture.md)

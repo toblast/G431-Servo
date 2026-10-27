@@ -24,6 +24,10 @@ DEBUG = 1
 # optimization
 OPT = -Og
 
+# This branch runs the cruise controller on the drive MCU.
+# Use a separate BUILD_DIR when comparing STANDALONE=0 and STANDALONE=1.
+STANDALONE ?= 1
+
 
 #######################################
 # paths
@@ -45,6 +49,7 @@ Core/Src/config_storage.c \
 Core/Src/configuration.c \
 Core/Src/control_table.c \
 Core/Src/cordic.c \
+Core/Src/cruise_control.c \
 Core/Src/drive.c \
 Core/Src/drive_faults.c \
 Core/Src/eeprom.c \
@@ -58,6 +63,9 @@ Core/Src/position_sensor.c \
 Core/Src/protocol.c \
 Core/Src/serial.c \
 Core/Src/servo_controller.c \
+Core/Src/standalone.c \
+Core/Src/standalone_config.c \
+Core/Src/vehicle_inputs.c \
 Core/Src/stm32g4xx_hal_msp.c \
 Core/Src/stm32g4xx_it.c \
 Core/Src/syscalls.c \
@@ -137,6 +145,7 @@ AS_DEFS =
 # C defines
 C_DEFS =  \
 -DUSE_HAL_DRIVER \
+-DDRIVE_STANDALONE=$(STANDALONE) \
 -DSTM32G431xx
 
 

@@ -24,6 +24,10 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "emergency_stop.h"
+#include "drive_mode.h"
+#if DRIVE_STANDALONE
+#include "vehicle_inputs.h"
+#endif
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -324,5 +328,9 @@ void CORDIC_IRQHandler(void)
 }
 
 /* USER CODE BEGIN 1 */
+#if DRIVE_STANDALONE
+void EXTI9_5_IRQHandler(void) { VehicleInputs_HandleExti(); }
+void EXTI15_10_IRQHandler(void) { VehicleInputs_HandleExti(); }
+#endif
 
 /* USER CODE END 1 */

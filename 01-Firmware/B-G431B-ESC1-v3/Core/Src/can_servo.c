@@ -4,6 +4,7 @@
 #include "binary_tool.h"
 #include "telemetry.h"
 #include "foc.h"
+#include "drive_mode.h"
 #include <stddef.h>
 
 static FDCAN_HandleTypeDef *can_handle;
@@ -55,6 +56,11 @@ void CanServo_OnRxFifo0(FDCAN_HandleTypeDef *hfdcan, uint32_t events)
             (rx_data[2] == 0) && (rx_data[3] == 0) &&
             (rx_data[4] == 0) && (rx_data[5] == 0) &&
             (rx_data[6] == 0) && (rx_data[7] == 0);
+#if DRIVE_STANDALONE
+        // Defensive guard even if a caller starts CAN in a custom build.
+        // Local cruise is the only ARM/goal source; DISARM remains acceptable.
+        if (!disarm) continue;
+#endif
         if (API_FOC_Is_Calibrating() && !disarm) continue;
         if (disarm) {
             Drive_Disarm();
