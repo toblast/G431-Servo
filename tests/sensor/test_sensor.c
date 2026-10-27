@@ -262,7 +262,7 @@ static void test_runtime_magnet_failure_preserves_sample(void)
         CHECK(positionSensor_getRadiansMultiturn() == angle);
         CHECK(positionSensor_getVelocityDps() == velocity);
         CHECK(regs[REG_HARDWARE_ERROR_STATUS] & (1U << HW_ERROR_BIT_POSITION_SENSOR_STATUS_ERROR));
-        CHECK(sensor->lastUpdate == 1000);
+        CHECK(sensor->last_sample_us == 1000);
     }
 }
 
@@ -272,7 +272,7 @@ static void observe_published_sample(void)
     CHECK(test_primask == 0);
     CHECK(close_to(positionSensor_getDegreesMultiturn(), 90.087890625f, 0.01f));
     CHECK(close_to(positionSensor_getVelocityDps(), 351.5625f, 0.5f));
-    CHECK(sensor->lastUpdate == 1250);
+    CHECK(sensor->last_sample_us == 1250);
     CHECK(sensor->angle_prev_rad == sensor->angle_rad);
 }
 

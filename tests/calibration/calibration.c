@@ -3,6 +3,7 @@
 #include <string.h>
 #include "calibration.h"
 #include "foc.h"
+#include "position_sensor.h"
 #include "control_table.h"
 #include "configuration.h"
 #include "math_tool.h"
@@ -24,7 +25,7 @@ static HAL_StatusTypeDef store_status;
 
 /* GLOBALS */
 static void LL_FOC_coast(void) { }
-int positionSensor_isReady(void) { return ready; }
+bool positionSensor_isReady(void) { return ready; }
 bool Config_IsValid(void) { return valid_config; }
 float positionSensor_getRadiansMultiturn(void)
 {

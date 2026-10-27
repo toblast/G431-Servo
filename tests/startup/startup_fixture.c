@@ -57,13 +57,13 @@ static int HAL_ADC_Start_DMA(ADC_HandleTypeDef *adc, uint32_t *data, unsigned co
     return next_status();
 }
 static bool Config_Load(void) { assert(!can_ready); if (failure_step == 9) return false; configuration_loaded = true; return true; }
-static void reset_ram_regs(void) { ram_reset = true; }
+static void control_reset_runtime(void) { ram_reset = true; }
 static void Drive_Init(void) { assert(ram_reset && !can_ready); }
 static bool Config_IsValid(void) { return true; }
 #define DRIVE_FAULT_CONFIGURATION (1U << 7)
 static void hardware_fault_set(uint8_t bits) { (void)bits; }
 static void HAL_Serial_Init(int *uart, int *handler) { (void)uart; (void)handler; serial_ready = true; }
-static int positionSensor_init(void) { sensor_ready = true; return 1; }
+static bool positionSensor_init(void) { sensor_ready = true; return true; }
 static void positionSensor_update(void) { assert(sensor_ready); }
 static void API_FOC_Service_Update(void) { assert(foc_ready); service_ready = true; }
 static void CanServo_Init(int *controller)

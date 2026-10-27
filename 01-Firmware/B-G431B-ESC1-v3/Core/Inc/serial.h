@@ -66,8 +66,11 @@ void HAL_Serial_Init_Half_Duplex(
 int HAL_Serial_Available(HAL_Serial_Handler * hserial);
 char HAL_Serial_GetChar(HAL_Serial_Handler * hserial);
 int HAL_Serial_Read(HAL_Serial_Handler * hserial, uint8_t * ptr, int len );
+// Foreground-only producer, borrowed source buffer copied into the bounded
+// queue. DMA IRQs own queue completion. These calls do not wait for transmission.
 // Returns len when queued, or zero for invalid input, full queue or start failure.
 int HAL_Serial_Write(HAL_Serial_Handler * hserial, uint8_t const * ptr, int len );
+// Returns queued formatted byte count, or zero (including oversized formatting).
 int HAL_Serial_Print(HAL_Serial_Handler * hserial,const char *fmt, ...);
 
 /* HAL Functions ------------------------------------------------------------------*/

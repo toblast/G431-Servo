@@ -205,7 +205,7 @@ int main(void)
 	if (HAL_TIM_Base_Start(&htim6) != HAL_OK) Error_Handler(); // 1us base time
 
   if (!Config_Load()) Error_Handler();
-  reset_ram_regs();
+  control_reset_runtime();
   Drive_Init();
   if (!Config_IsValid()) hardware_fault_set(DRIVE_FAULT_CONFIGURATION);
   HAL_Serial_Init(&huart2,&serial);

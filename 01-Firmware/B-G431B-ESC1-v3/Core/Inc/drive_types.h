@@ -5,7 +5,8 @@
 #include <stdint.h>
 #include "drive_faults.h"
 
-// Active application settings. Gain fields retain their existing register scale.
+// Active application settings. Angles/velocity always refer to the motor shaft.
+// Unit suffixes are literal; *_raw gains retain the encoded register scale.
 typedef struct {
     int16_t min_position_deg, max_position_deg, max_velocity_dps;
     uint16_t max_current_mA;
@@ -20,10 +21,13 @@ typedef struct {
 // existing units/scales so the refactor does not alter arithmetic or the wire ABI.
 typedef struct {
     int16_t position_tenths_deg, velocity_dps, torque_mA, flux_mA;
-    uint8_t pos_kp, pos_kd, vel_kp;
+    // Controller multipliers: Kp = raw * 2, Kd = raw * 200 per-sample derivative,
+    // velocity Kp = raw / 10. The CAN format supplies zero velocity Kp.
+    uint8_t position_kp_raw, position_kd_raw, velocity_kp_raw;
 } ServoCommand;
 
 typedef struct {
+    // A copied value, not a live reference. Publication must recheck generation.
     bool enabled;
     uint32_t generation;
     ServoCommand goal;
@@ -48,7 +52,7 @@ typedef struct {
     DriveFaultFlags faults;
     uint32_t generation;
     bool armed; // Command permission, not proof that PWM outputs are enabled.
-    uint32_t last_command_ms;
+    uint32_t last_command_ms; // HAL tick at last accepted ARM/servo command; wraps.
     DriveMeasurements measured;
 } DriveStatus;
 

@@ -22,7 +22,7 @@ void Drive_Init(void)
     control_mirror_command(false, &drive.command);
 }
 
-bool Drive_Is_Disarmed(void)
+bool Drive_IsDisarmed(void)
 {
     uint32_t const primask = __get_PRIMASK();
     __disable_irq();
@@ -31,7 +31,7 @@ bool Drive_Is_Disarmed(void)
     return result;
 }
 
-bool Drive_Is_Maintenance(void)
+bool Drive_IsMaintenance(void)
 {
     uint32_t const primask = __get_PRIMASK();
     __disable_irq();
@@ -51,7 +51,7 @@ void Drive_Disarm(void)
     __set_PRIMASK(primask);
 }
 
-bool Drive_Request_Arm(void)
+bool Drive_RequestArm(void)
 {
     uint32_t const primask = __get_PRIMASK();
     __disable_irq();
@@ -80,7 +80,7 @@ done:
     return accepted;
 }
 
-bool Drive_Submit_Command(ServoCommand const *command)
+bool Drive_SubmitCommand(ServoCommand const *command)
 {
     uint32_t const primask = __get_PRIMASK();
     __disable_irq();
@@ -94,7 +94,7 @@ bool Drive_Submit_Command(ServoCommand const *command)
     return accepted;
 }
 
-DriveCommandSnapshot Drive_Get_Command(void)
+DriveCommandSnapshot Drive_GetCommand(void)
 {
     uint32_t const primask = __get_PRIMASK();
     __disable_irq();
@@ -107,7 +107,7 @@ DriveCommandSnapshot Drive_Get_Command(void)
     return result;
 }
 
-bool Drive_Publish_Currents(DriveCommandSnapshot const *command, bool new_arm,
+bool Drive_PublishCurrents(DriveCommandSnapshot const *command, bool new_arm,
                           float torque_mA, float flux_mA)
 {
     uint32_t const primask = __get_PRIMASK();
@@ -123,7 +123,7 @@ bool Drive_Publish_Currents(DriveCommandSnapshot const *command, bool new_arm,
     return accepted;
 }
 
-void Drive_Disable_If_Disarmed(void)
+void Drive_DisableIfDisarmed(void)
 {
     uint32_t const primask = __get_PRIMASK();
     __disable_irq();
@@ -143,7 +143,7 @@ void Drive_Service(void)
     __set_PRIMASK(primask);
 }
 
-bool Drive_Begin_Maintenance(bool disarm_first)
+bool Drive_BeginMaintenance(bool disarm_first)
 {
     uint32_t const primask = __get_PRIMASK();
     __disable_irq();
@@ -157,7 +157,7 @@ bool Drive_Begin_Maintenance(bool disarm_first)
     return accepted;
 }
 
-void Drive_End_Maintenance(void)
+void Drive_EndMaintenance(void)
 {
     uint32_t const primask = __get_PRIMASK();
     __disable_irq();
@@ -165,15 +165,15 @@ void Drive_End_Maintenance(void)
     __set_PRIMASK(primask);
 }
 
-bool Drive_Start_Calibration(void)
+bool Drive_StartCalibration(void)
 {
-    if (!Drive_Is_Disarmed() || Drive_Is_Maintenance()) return false;
+    if (!Drive_IsDisarmed() || Drive_IsMaintenance()) return false;
     // FOC repeats its atomic entry check: a CAN ARM arriving here must win or
     // be rejected by FOC's calibration-active flag, never race into motion.
     return Calibration_Start();
 }
 
-void Drive_Publish_Measurements(DriveMeasurements const *measurements)
+void Drive_PublishMeasurements(DriveMeasurements const *measurements)
 {
     uint32_t const primask = __get_PRIMASK();
     __disable_irq();
@@ -182,7 +182,7 @@ void Drive_Publish_Measurements(DriveMeasurements const *measurements)
     __set_PRIMASK(primask);
 }
 
-DriveStatus Drive_Get_Status(void)
+DriveStatus Drive_GetStatus(void)
 {
     uint32_t const primask = __get_PRIMASK();
     __disable_irq();

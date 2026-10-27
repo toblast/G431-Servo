@@ -225,7 +225,7 @@ void instruction_handler()
 		break;
 	case INSTR_REBOOT:
 		{
-			if (!Drive_Begin_Maintenance(true)) break;
+			if (!Drive_BeginMaintenance(true)) break;
 			// reply with a status packet with Model Number LSB MSB and Firmware version
 			tx_packet_buffer[PKT_INSTRUCTION]= INSTR_STATUS;
 			tx_packet_buffer[PKT_ERROR]= ERROR_NONE;

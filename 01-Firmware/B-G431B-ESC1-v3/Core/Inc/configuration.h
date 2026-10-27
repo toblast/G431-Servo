@@ -11,6 +11,8 @@ typedef enum {
 } ConfigResult;
 
 // Safety validation is independent of persistence and arming permission.
+// Validate is pure and returns false for NULL; IsValid snapshots live settings
+// coherently. Both may run in foreground or IRQ and retain no caller pointer.
 bool Config_Validate(DriveConfig const *config);
 bool Config_IsValid(void);
 
@@ -20,15 +22,21 @@ bool Config_IsValid(void);
 bool Config_Load(void);
 
 // Foreground/startup only. Caller owns exclusion: startup, maintenance, or FOC's
-// calibration guard, with IRQs enabled. Capture a bounded image atomically; I/O runs outside
-// the snapshot critical section. Failure latches the internal fault, with no
-// promise of flash rollback or restoration of the applied RAM values.
+// calibration guard, with IRQs enabled. Capture a bounded image atomically;
+// synchronous I/O runs outside the snapshot critical section. True means saved.
+// Failure latches the internal fault; it does not promise flash rollback or
+// restoration of the applied RAM values.
 bool Config_Save(void);
 
+// Foreground-only, IRQs enabled, synchronous I/O; data is borrowed for the call.
+// CONFIG_OK means applied and saved. CONFIG_ACCESS_ERROR/CONFIG_BUSY leave
+// settings unchanged; CONFIG_STORAGE_ERROR leaves applied RAM values and
+// latches the internal fault.
 // Range/permission checks precede atomic application. Partial updates remain
 // supported: safety validation gates ARM, not each intermediate repair write.
 ConfigResult Config_ApplyRegisterWrite(uint16_t address, uint16_t length, uint8_t const *data);
-// Disarm and apply/persist defaults. Success keeps maintenance through the
+// Foreground-only, IRQs enabled. Acquire maintenance, disarm and apply/persist
+// defaults; CONFIG_BUSY makes no change. Success keeps maintenance through the
 // caller's reply/reset delay; failure releases it and reports the storage fault.
 ConfigResult Config_FactoryReset(void);
 

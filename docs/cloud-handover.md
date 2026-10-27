@@ -3,6 +3,11 @@
 Prepared 2026-10-21 for continuing the local G431-Servo development chat.
 This is a project handover, not an export of the complete conversation.
 
+Historical snapshot: the branch/commit/start-chat instructions below describe
+the original `simplified` handover. For current `professional` development, read
+the [roadmap](professional-roadmap.md), [architecture](professional-architecture.md)
+and [conventions](firmware-conventions.md), and verify the live checkout first.
+
 The preparation history below is a snapshot. The 2026-10-22 follow-up fixes
 and eleven-suite validation supersede its implementation/test summary; consult
 the current [audit register](simplified-audit.md#2026-10-22-follow-up).

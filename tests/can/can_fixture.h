@@ -9,6 +9,7 @@
 #include "binary_tool.h"
 #include "foc.h"
 #include "calibration.h"
+#include "position_sensor.h"
 #include "drive.h"
 #include "telemetry.h"
 #include "can_servo.h"
@@ -53,7 +54,7 @@ void API_FOC_Set_Torque_Flux_Currents_mA(float torque, float flux) {
     published_torque = torque;
     published_flux = flux;
 }
-int positionSensor_isReady(void) { return sensor_ready; }
+bool positionSensor_isReady(void) { return sensor_ready; }
 bool API_FOC_Is_Calibrating(void) { return mock_calibrating; }
 bool Calibration_Start(void) { ++calibration_calls; return true; }
 HAL_StatusTypeDef eeprom_store(uint8_t const *data, uint32_t size) { (void)data; (void)size; return HAL_OK; }
@@ -88,6 +89,6 @@ HAL_StatusTypeDef HAL_FDCAN_AddMessageToTxFifoQ(FDCAN_HandleTypeDef *handle,
 } while (0)
 
 // Observations through the public supervisor API; tests never include drive.c.
-#define can_armed (Drive_Get_Status().armed)
-#define can_arm_generation (Drive_Get_Status().generation)
-#define can_last_time (Drive_Get_Status().last_command_ms)
+#define can_armed (Drive_GetStatus().armed)
+#define can_arm_generation (Drive_GetStatus().generation)
+#define can_last_time (Drive_GetStatus().last_command_ms)

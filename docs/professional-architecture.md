@@ -2,11 +2,19 @@
 
 Branch `professional`, based on `simplified` at `8629fd6`. The first increment
 introduced the typed model and drive supervisor; the second extracted the outer
-servo controller; the third extracted CAN handling; the fourth extracts the
-foreground application scheduler; the fifth adds typed low-level motor/fault
-boundaries; the sixth separates configuration validation, application and storage.
-The seventh advances calibration motion through explicit foreground states.
+servo controller; the third extracted CAN handling; the fourth extracted the
+foreground application scheduler; the fifth added typed low-level motor/fault
+boundaries; the sixth separated configuration validation, application and storage.
+The seventh advanced calibration motion through explicit foreground states;
+the eighth aligned conventions, interface contracts and current references.
 The control calculations and normal command behavior are preserved.
+
+Names, numeric scales, caller/pointer/IRQ obligations and error returns are
+recorded in [firmware-conventions.md](firmware-conventions.md) and module headers.
+Application APIs use `Module_Action` (for example `Drive_RequestArm`); low-level
+motor/driver interfaces keep their established names. Raw command gains explicitly
+use `_raw` fields. Sensor readiness/init are boolean; readiness reports successful
+initialization and must be combined with live fault flags after acquisition.
 
 ## Current boundaries
 
@@ -76,8 +84,9 @@ view, not a replacement for FOC's internal modes or a new CAN telemetry format.
 - CAN command acceptance precedes feedback queuing, as before. A full/failed TX
   queue does not undo the command, delay DISARM, retry or extend receive work.
 - `App_Init` binds the initialized 1 MHz/16-bit timer and protocol serial handler
-  after CAN setup. It initializes controller/calibration/scheduler history without changing
-  an accepted drive command. `App_Process` is foreground-only and nonreentrant.
+  after CAN setup. It initializes controller/calibration/scheduler history
+  without changing an accepted drive command. `App_Process` is foreground-only
+  and nonreentrant.
 - Each application pass services drive watchdogs before sampling the timer once.
   Unsigned 16-bit elapsed times schedule at most one servo update (250 us) and
   one service update (10000 us), in that order. Deadlines advance by their fixed
@@ -148,7 +157,7 @@ view, not a replacement for FOC's internal modes or a new CAN telemetry format.
   internal fault and returns failure to startup before any image application.
   `Config_FactoryReset` preserves the reset-delay maintenance guard on success
   and releases it on storage failure. Serial error/reply mappings are unchanged.
-- `Drive_Start_Calibration` checks application permission and starts the foreground
+- `Drive_StartCalibration` checks application permission and starts the foreground
   job. FOC's atomic entry guard resolves an ARM arriving between the permission
   check and entry. FOC owns the private active/cancelled flags and guarded
   excitation/coast primitives; `calibration.c` owns the trajectory and result.
@@ -178,7 +187,8 @@ Normal sensor acquisition and protection service stay in `app.c`.
 Dwell timestamps are taken after publishing each target. Late foreground work
 extends a dwell; the job never catches up with a burst of angle steps. Capture
 states wait for a subsequent normal acquisition, so a sample taken just before
-the settling deadline is not reused. Synchronous I2C still bounds acquisition.
+the settling deadline is not reused. Synchronous I2C can still delay foreground
+work up to its existing timeout.
 
 DISARM immediately coasts and marks cancellation; the following job update
 cleans up. Other faults/readiness loss and FOC age over 10 ms also cancel. A
@@ -239,8 +249,9 @@ state. Application checks cover deadline boundaries, fixed-phase catch-up,
 rollover, execution order, delayed acquisition, watchdog-first dispatch,
 configuration faults, button interlocks, continued acquisition/publication and
 serial service during calibration, skipped outer control, one-shot completion,
-bounded serial work and IRQ restoration. Telemetry counter tests drive public passes instead of injecting
-counters; saturation, NaN/infinity and zero-uptime coverage is retained.
+bounded serial work and IRQ restoration. Telemetry counter tests drive public
+passes instead of injecting counters; saturation, NaN/infinity and zero-uptime
+coverage is retained.
 
 Configuration tests link the real motor/fault adapters at `-O0` and `-O2` and
 cover signed/unsigned fields, gain scales, coherent snapshots, complete alignment
@@ -273,10 +284,10 @@ Validated on 2026-10-27:
   and `-O2`, with zero failures.
 - Fresh ARM GCC 14.3.1 builds passed at `-Og` and `-O2`. Both retain the
   existing linker warning about a load segment with RWX permissions.
-- The FOC calibration trajectory/waits have moved to the foreground job with
-  atomic excitation primitives retained in FOC. Its transforms, PI equations,
-  sensing/prediction, limits and fault policies
-  are retained. `pic.c`, `math_tool.c` and `as5600.c` are unchanged.
+- The conventions pass changes API/field names, sensor boolean declarations and
+  header contracts; the FOC implementation is unchanged from increment seven.
+  Its transforms, PI equations, sensing/prediction, limits and fault policies
+  are retained. `pic.c`, `math_tool.c` and `as5600.c` remain unchanged.
 
 This verifies software regressions and compilation. Interrupt duration,
 foreground jitter and physical motor behavior still require the recorded bench

@@ -35,7 +35,7 @@ HAL_StatusTypeDef eeprom_restore(uint8_t *data, uint32_t size)
     if (load_status == HAL_OK) memcpy(data, image, size);
     return load_status;
 }
-bool Drive_Begin_Maintenance(bool disarm_first)
+bool Drive_BeginMaintenance(bool disarm_first)
 {
     if (!disarm_first) CHECK(test_primask == 1);
     if (maintenance || calibrating || (!disarm_first && armed)) return false;
@@ -43,7 +43,7 @@ bool Drive_Begin_Maintenance(bool disarm_first)
     if (disarm_first) { armed = false; regs[REG_TORQUE_ENABLE] = 0; }
     return true;
 }
-void Drive_End_Maintenance(void) { maintenance = false; }
+void Drive_EndMaintenance(void) { maintenance = false; }
 static void defaults(void)
 {
     memset(regs, 0, sizeof regs);
@@ -195,7 +195,7 @@ static void test_configuration_operations(void)
     CHECK(Config_FactoryReset() == CONFIG_OK && maintenance && !armed && !regs[REG_TORQUE_ENABLE]);
     CHECK(Config_IsValid() && regs[REG_LED] == 9 && regs[REG_RESERVED_RAM_3] == 0x5a && image[REG_TORQUE_ENABLE - 1] == 0xab);
     CHECK(Config_ApplyRegisterWrite(REG_ID, 1, &value) == CONFIG_BUSY);
-    Drive_End_Maintenance();
+    Drive_EndMaintenance();
     store_status = HAL_ERROR;
     CHECK(Config_FactoryReset() == CONFIG_STORAGE_ERROR && !maintenance && hardware_fault_status() == DRIVE_FAULT_INTERNAL);
     on_store = NULL;

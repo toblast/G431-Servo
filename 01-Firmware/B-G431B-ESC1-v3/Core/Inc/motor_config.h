@@ -14,7 +14,8 @@ typedef struct {
     uint8_t invert_phase_motor;
 } MotorAlignment;
 
-// Raw numeric gain scales are retained; FOC applies its existing conversions.
+// All angles/velocities refer to the motor shaft. Raw gains retain their register
+// scale: FOC divides Kp by 100000 and Ki by 100000000 before its existing PI.
 typedef struct {
     int16_t phase_offset_deg;
     uint16_t phase_trim_deg;
@@ -31,6 +32,8 @@ typedef struct {
 // Narrow live views of the existing settings image, not a second cache. Reads
 // and alignment writes are coherent and restore the caller's IRQ mask. Fast
 // control readers run from CCMRAM. No allocation or persistence in these paths.
+// Readable from foreground/IRQ; alignment writes require foreground calibration
+// or configuration exclusion. Nonnull alignment pointers are borrowed/copied.
 MotorControlConfig control_read_motor_config(void) __attribute__((section(".ccmram")));
 MotorProtectionConfig control_read_protection_config(void);
 MotorAlignment control_read_motor_alignment(void);

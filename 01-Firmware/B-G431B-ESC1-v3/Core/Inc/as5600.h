@@ -20,6 +20,12 @@ typedef struct {
 } AS5600_TypeDef;
 
 
+// Synchronous foreground/startup I2C only, IRQs enabled; calls are nonreentrant.
+// Handles/output pointers are nonnull and borrowed. HAL_OK means success (zero);
+// other HAL statuses indicate failure. Angle/position values are raw counts,
+// 4096 per turn. Ignore output on failure; angle getters publish only on success.
+// Init configures the device and checks readback/magnet health without changing
+// its stored zero.
 HAL_StatusTypeDef AS5600_Init(AS5600_TypeDef *a);
 HAL_StatusTypeDef AS5600_CheckMagnet(AS5600_TypeDef *const a);
 

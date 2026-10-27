@@ -1,10 +1,16 @@
 # Visual architecture guide
 
-**G431-Servo · branch `simplified` · B-G431B-ESC1 + AS5600**
+**Historical baseline · `simplified` at `8629fd6` · B-G431B-ESC1 + AS5600**
+
+This illustrated snapshot predates the `professional` refactors. Its module
+names, shared state and blocking calibration describe that saved baseline.
+For current code paths, ownership and nonblocking calibration, use the
+[professional architecture](professional-architecture.md),
+[firmware conventions](firmware-conventions.md) and [roadmap](professional-roadmap.md).
 
 This guide connects the system concept to the implementation in
 `01-Firmware/B-G431B-ESC1-v3`. Read sections 1–2 for the control concept, then
-sections 3–7 to navigate the code. The diagrams describe the current firmware;
+sections 3–7 to navigate the baseline code. The diagrams describe that firmware;
 the ESP32 and mechanical assembly are the surrounding system design, outside
 this repository. Hardware timing and release behavior still need bench validation.
 

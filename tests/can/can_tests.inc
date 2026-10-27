@@ -44,7 +44,7 @@ static void reset_fixture(bool armed)
     Drive_Init();
     CanServo_Init(&hfdcan1);
     expected_can_handle = &hfdcan1;
-    if (armed) { mock_tick = 17; Drive_Request_Arm(); }
+    if (armed) { mock_tick = 17; Drive_RequestArm(); }
     initial_command_ms = can_last_time;
     mock_tick = mock_foc_tick = 300;
     tx_count = disable_count = pending_rx = receive_buffer_too_small = 0;
@@ -249,11 +249,11 @@ static void test_watchdog_rollover_and_boundaries(void)
     CHECK(!can_armed && disable_count == 1, "CAN expiry disables immediately");
 
     reset_fixture(true);
-    mock_tick = UINT32_MAX - 200; Drive_Request_Arm();
+    mock_tick = UINT32_MAX - 200; Drive_RequestArm();
     mock_tick = mock_foc_tick = UINT32_MAX - 100;
     Drive_Service();
     CHECK(can_armed, "CAN does not expire prematurely before rollover");
-    mock_tick = UINT32_MAX - 500; Drive_Request_Arm();
+    mock_tick = UINT32_MAX - 500; Drive_RequestArm();
     mock_tick = mock_foc_tick = 100;
     Drive_Service();
     CHECK(can_armed, "CAN elapsed time remains valid after rollover");
@@ -262,7 +262,7 @@ static void test_watchdog_rollover_and_boundaries(void)
     CHECK(!can_armed, "CAN expires across rollover");
 
     reset_fixture(true);
-    mock_tick = 4; Drive_Request_Arm();
+    mock_tick = 4; Drive_RequestArm();
     mock_foc_tick = UINT32_MAX - 5;
     Drive_Service();
     CHECK(can_armed, "FOC remains healthy at ten milliseconds across rollover");
@@ -278,32 +278,32 @@ static void test_command_snapshot_and_stale_publication(void)
 {
     reset_fixture(true);
     ServoCommand const goal = { .position_tenths_deg = 0x1234, .torque_mA = -2 };
-    Drive_Submit_Command(&goal);
-    DriveCommandSnapshot const command = Drive_Get_Command();
+    Drive_SubmitCommand(&goal);
+    DriveCommandSnapshot const command = Drive_GetCommand();
     CHECK(command.enabled && command.goal.position_tenths_deg == 0x1234 && command.goal.torque_mA == -2,
           "foreground takes a signed coherent command snapshot");
     regs[REG_GOAL_POSITION_DEG_L] = regs[REG_GOAL_POSITION_DEG_H] = 0;
     CHECK(command.goal.position_tenths_deg == 0x1234, "later RX does not alter snapshot");
-    CHECK(Drive_Get_Command().goal.position_tenths_deg == 0x1234, "register mirrors do not own the live command");
-    CHECK(Drive_Publish_Currents(&command, true, 123, -45), "current snapshot can publish");
+    CHECK(Drive_GetCommand().goal.position_tenths_deg == 0x1234, "register mirrors do not own the live command");
+    CHECK(Drive_PublishCurrents(&command, true, 123, -45), "current snapshot can publish");
     CHECK(enable_count == 1 && current_updates == 1 && published_torque == 123 && published_flux == -45,
           "new ARM initializes FOC and publishes the complete current pair");
 
     Drive_Disarm();
-    CHECK(!Drive_Publish_Currents(&command, true, 999, 999), "DISARM rejects an in-flight calculation");
+    CHECK(!Drive_PublishCurrents(&command, true, 999, 999), "DISARM rejects an in-flight calculation");
     memset(pending_data, 0xFF, 8);
     receive();
-    CHECK(!Drive_Publish_Currents(&command, true, 999, 999), "rearm rejects the preceding ARM generation");
+    CHECK(!Drive_PublishCurrents(&command, true, 999, 999), "rearm rejects the preceding ARM generation");
     CHECK(current_updates == 1, "stale computations never publish");
-    DriveCommandSnapshot const rearmed = Drive_Get_Command();
-    CHECK(Drive_Publish_Currents(&rearmed, true, 12, 0), "fresh rearm generation publishes");
+    DriveCommandSnapshot const rearmed = Drive_GetCommand();
+    CHECK(Drive_PublishCurrents(&rearmed, true, 12, 0), "fresh rearm generation publishes");
     CHECK(enable_count == 2 && current_updates == 2, "rearm resets FOC exactly once");
 }
 
 static void test_typed_views_and_supervisor_policy(void)
 {
     reset_fixture(false);
-    DriveStatus status = Drive_Get_Status();
+    DriveStatus status = Drive_GetStatus();
     CHECK(status.state == DRIVE_DISARMED && !status.armed, "supervisor starts disarmed");
     DriveConfig const config = control_read_config();
     CHECK(config.min_position_deg == -180 && config.max_position_deg == 180 && config.max_current_mA == 500,
@@ -313,9 +313,9 @@ static void test_typed_views_and_supervisor_policy(void)
         .position_deg = 123.45f, .velocity_dps = -20.75f,
         .torque_mA = -500, .flux_mA = 123, .voltage_V = 24, .temperature_C = 30, .moving = true
     };
-    Drive_Publish_Measurements(&measurements);
+    Drive_PublishMeasurements(&measurements);
     measurements.position_deg = 0;
-    status = Drive_Get_Status();
+    status = Drive_GetStatus();
     CHECK(fabsf(status.measured.position_deg - 123.45f) < 0.001f && status.measured.torque_mA == -500,
           "status owns a copy of typed measurements");
     CHECK((int16_t)MAKE_SHORT(regs[REG_PRESENT_POSITION_DEG_L], regs[REG_PRESENT_POSITION_DEG_H]) == 1234,
@@ -326,32 +326,32 @@ static void test_typed_views_and_supervisor_policy(void)
           (int16_t)MAKE_SHORT(last_reply[2], last_reply[3]) == -500,
           "typed status produces the unchanged four-byte CAN reply");
 
-    CHECK(Drive_Begin_Maintenance(false), "disarmed maintenance entry succeeds");
-    CHECK(Drive_Get_Status().state == DRIVE_MAINTENANCE && Drive_Is_Maintenance(), "maintenance has one owner");
-    CHECK(!Drive_Request_Arm(), "maintenance blocks ARM");
+    CHECK(Drive_BeginMaintenance(false), "disarmed maintenance entry succeeds");
+    CHECK(Drive_GetStatus().state == DRIVE_MAINTENANCE && Drive_IsMaintenance(), "maintenance has one owner");
+    CHECK(!Drive_RequestArm(), "maintenance blocks ARM");
     CHECK(hardware_fault_status() == (1U << HW_ERROR_BIT_CONFIGURATION), "rejected maintenance ARM retains fault semantics");
-    Drive_End_Maintenance();
+    Drive_EndMaintenance();
     hardware_fault_clear(1U << HW_ERROR_BIT_CONFIGURATION);
-    CHECK(Drive_Request_Arm() && Drive_Get_Status().state == DRIVE_ARMED, "ARM succeeds after maintenance ends and fault clears");
-    CHECK(!Drive_Begin_Maintenance(false) && can_armed, "ordinary configuration cannot disarm an active servo");
+    CHECK(Drive_RequestArm() && Drive_GetStatus().state == DRIVE_ARMED, "ARM succeeds after maintenance ends and fault clears");
+    CHECK(!Drive_BeginMaintenance(false) && can_armed, "ordinary configuration cannot disarm an active servo");
     calibration_calls = 0;
-    CHECK(!Drive_Start_Calibration() && calibration_calls == 0 && can_armed,
+    CHECK(!Drive_StartCalibration() && calibration_calls == 0 && can_armed,
           "armed calibration request is rejected without touching FOC");
-    CHECK(Drive_Begin_Maintenance(true) && !can_armed, "reset maintenance disarms before persistence");
-    CHECK(!Drive_Start_Calibration() && calibration_calls == 0, "maintenance rejects calibration");
-    Drive_End_Maintenance();
-    CHECK(Drive_Start_Calibration() && calibration_calls == 1, "disarmed calibration forwards through the supervisor");
+    CHECK(Drive_BeginMaintenance(true) && !can_armed, "reset maintenance disarms before persistence");
+    CHECK(!Drive_StartCalibration() && calibration_calls == 0, "maintenance rejects calibration");
+    Drive_EndMaintenance();
+    CHECK(Drive_StartCalibration() && calibration_calls == 1, "disarmed calibration forwards through the supervisor");
     mock_calibrating = true;
-    CHECK(Drive_Get_Status().state == DRIVE_CALIBRATING && !Drive_Is_Disarmed(), "FOC job state is visible through the supervisor");
-    CHECK(!Drive_Begin_Maintenance(false), "calibration excludes configuration maintenance");
+    CHECK(Drive_GetStatus().state == DRIVE_CALIBRATING && !Drive_IsDisarmed(), "FOC job state is visible through the supervisor");
+    CHECK(!Drive_BeginMaintenance(false), "calibration excludes configuration maintenance");
     mock_calibrating = false;
-    CHECK(Drive_Request_Arm(), "arm before asynchronous fault");
+    CHECK(Drive_RequestArm(), "arm before asynchronous fault");
     hardware_fault_set(1U << HW_ERROR_BIT_OVERLOAD);
-    CHECK(Drive_Get_Status().state == DRIVE_FAULT && !Drive_Get_Command().enabled, "fault immediately inhibits command publication");
+    CHECK(Drive_GetStatus().state == DRIVE_FAULT && !Drive_GetCommand().enabled, "fault immediately inhibits command publication");
     Drive_Service();
     CHECK(!can_armed && !regs[REG_TORQUE_ENABLE], "foreground service revokes permission after a fault");
     hardware_fault_clear(0xff);
-    CHECK(Drive_Get_Status().state == DRIVE_DISARMED, "fault clear does not automatically rearm");
+    CHECK(Drive_GetStatus().state == DRIVE_DISARMED, "fault clear does not automatically rearm");
     test_primask = 1;
     Drive_Disarm();
     CHECK(test_primask == 1, "supervisor preserves an existing critical section");
@@ -397,7 +397,7 @@ static void test_transport_binding_and_feedback(void)
     regs[REG_ID] = 7;
     pending_header.Identifier = 7;
     DriveMeasurements measurements = { .position_deg = -12.3f, .torque_mA = 456 };
-    Drive_Publish_Measurements(&measurements);
+    Drive_PublishMeasurements(&measurements);
     memset(pending_data, 0, 8);
     receive();
     CHECK(last_reply_id == 0x17 && last_reply[0] == 0x85 && last_reply[1] == 0xff &&
@@ -405,13 +405,13 @@ static void test_transport_binding_and_feedback(void)
           "feedback retains configured ID, signed scaling and little-endian byte order");
     measurements.position_deg = INFINITY;
     measurements.torque_mA = -INFINITY;
-    Drive_Publish_Measurements(&measurements);
+    Drive_PublishMeasurements(&measurements);
     receive();
     CHECK(last_reply[0] == 0xff && last_reply[1] == 0x7f &&
           last_reply[2] == 0x00 && last_reply[3] == 0x80,
           "feedback saturates both signed fields before encoding");
     measurements.position_deg = measurements.torque_mA = NAN;
-    Drive_Publish_Measurements(&measurements);
+    Drive_PublishMeasurements(&measurements);
     receive();
     CHECK(last_reply[0] == 0 && last_reply[1] == 0 && last_reply[2] == 0 && last_reply[3] == 0,
           "feedback maps nonfinite NaN measurements to zero");

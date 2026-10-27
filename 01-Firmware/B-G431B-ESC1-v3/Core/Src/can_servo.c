@@ -62,21 +62,21 @@ void CanServo_OnRxFifo0(FDCAN_HandleTypeDef *hfdcan, uint32_t events)
                    (rx_data[2] == 0xFF) && (rx_data[3] == 0xFF) &&
                    (rx_data[4] == 0xFF) && (rx_data[5] == 0xFF) &&
                    (rx_data[6] == 0xFF) && (rx_data[7] == 0xFF)) {
-            if (!Drive_Request_Arm()) continue;
+            if (!Drive_RequestArm()) continue;
         } else {
             ServoCommand const command = {
                 .position_tenths_deg = (int16_t)MAKE_SHORT(rx_data[0], rx_data[1]),
                 .velocity_dps = (int16_t)MAKE_SHORT(rx_data[2], rx_data[3]),
                 .torque_mA = (int16_t)MAKE_SHORT(rx_data[4], rx_data[5]),
-                .pos_kp = rx_data[6],
-                .pos_kd = rx_data[7]
+                .position_kp_raw = rx_data[6],
+                .position_kd_raw = rx_data[7]
             };
-            if (!Drive_Submit_Command(&command)) continue;
+            if (!Drive_SubmitCommand(&command)) continue;
         }
 
         tx_header.Identifier = 0x10 + regs[REG_ID];
         tx_header.DataLength = FDCAN_DLC_BYTES_4;
-        DriveStatus const status = Drive_Get_Status();
+        DriveStatus const status = Drive_GetStatus();
         int16_t const position = telemetry_i16(status.measured.position_deg * 10.0f);
         int16_t const torque = telemetry_i16(status.measured.torque_mA);
         tx_data[0] = LOW_BYTE(position);

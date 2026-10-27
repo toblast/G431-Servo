@@ -1,6 +1,10 @@
 # Simplified firmware pseudocode
 
 Describes the selected `01-Firmware/B-G431B-ESC1-v3` firmware at `8629fd6`.
+This is the historical `simplified` baseline; its foreground/controller/CAN
+ownership and blocking calibration predate the refactors. Current module paths,
+scheduling and calibration states are in [professional-architecture.md](professional-architecture.md),
+with contracts in [firmware-conventions.md](firmware-conventions.md).
 This is an explanation of the saved implementation, not replacement firmware.
 Peripheral register setup, byte packing and detailed equations are condensed.
 All position and velocity values refer to the motor shaft.

@@ -38,7 +38,7 @@ void App_Init(TIM_HandleTypeDef *timer, HAL_Serial_Handler *serial)
 static void update_servo(void)
 {
     positionSensor_update();
-    DriveCommandSnapshot const command = Drive_Get_Command();
+    DriveCommandSnapshot const command = Drive_GetCommand();
     DriveConfig const config = control_read_config();
     ServoSetpoints setpoints = {
         .position_deg = 0.0f, .velocity_dps = 0.0f,
@@ -63,7 +63,7 @@ static void update_servo(void)
         .temperature_C = API_FOC_Get_Present_Temp(),
         .moving = fabsf(positionSensor_getVelocityDps()) > (float)config.moving_threshold_dps
     };
-    Drive_Publish_Measurements(&measurements);
+    Drive_PublishMeasurements(&measurements);
     __set_PRIMASK(primask);
 
     // Preserve diagnostic scaling and the counter values before loop completion.
@@ -92,9 +92,9 @@ static void service(void)
     // Update the edge history even while armed, so disarming a held button
     // cannot turn that old press into a new calibration request.
     bool const button_down = HAL_GPIO_ReadPin(BUTTON_GPIO_Port, BUTTON_Pin) == GPIO_PIN_RESET;
-    bool const calibration_requested = button_down && !app.calibration_button_was_down && Drive_Is_Disarmed();
+    bool const calibration_requested = button_down && !app.calibration_button_was_down && Drive_IsDisarmed();
     app.calibration_button_was_down = button_down;
-    if (calibration_requested && !Drive_Start_Calibration())
+    if (calibration_requested && !Drive_StartCalibration())
         HAL_Serial_Print(app.serial, "Calibration result: %d (0=success, 1=no motion, 2=pole pairs, 3=cancel/fault, 4=storage)\n", CALIBRATION_CANCELLED);
 
     // Bound work to the bytes present now so traffic cannot starve watchdogs.

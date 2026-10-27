@@ -180,9 +180,9 @@ extern "C" {
 #define REG_HIGH_VOLTAGE_LIMIT_VALUE		28		// V
 
 #define REG_MOVING_THRESHOLD_DPS_VALUE		5		// dps
-#define REG_STATUS_RETURN_LVL_VALUE			0		// TODO : fill comment
-#define REG_ALARM_LED_VALUE					0		// TODO : fill comment
-#define REG_ALARM_SHUTDOWN_VALUE			0		// TODO : fill comment
+#define REG_STATUS_RETURN_LVL_VALUE			0		// Reserved legacy field; not consumed
+#define REG_ALARM_LED_VALUE					0		// Reserved legacy field; not consumed
+#define REG_ALARM_SHUTDOWN_VALUE			0		// Reserved legacy field; not consumed
 
 #define REG_ENCODER_BITS_VALUE                12      // fixed AS5600 resolution
 #define REG_MOTOR_POLE_PAIRS_VALUE			14		//
@@ -217,7 +217,7 @@ extern "C" {
 #define REG_CAL_PHASE2_CURRENT_SENSE_OFFSET_VALUE 2500 // ADC
 #define REG_CAL_PHASE3_CURRENT_SENSE_OFFSET_VALUE 2500 // ADC
 
-#define REG_CAL_VOLTAGE_SENSOR_VALUE 1000 // V
+#define REG_CAL_VOLTAGE_SENSOR_VALUE 1000 // Reserved legacy word; not a voltage in V
 
 #define REG_EWMA_ENCODER_VALUE 255
 
@@ -233,18 +233,24 @@ extern "C" {
 #define HW_ERROR_BIT_CONFIGURATION 7
 
 // REGISTER OPERATIONS ////////////////////////////////////////////////////////
-// Legacy serial/flash register adapter. Runtime command/status mirrors are
-// written by the supervisor; application control consumes typed snapshots.
+// Legacy serial/flash register adapter. Nonnull pointer arguments are borrowed
+// for the call, never retained. Read/capture return coherent copies and restore
+// the caller's IRQ mask. Runtime mirrors belong to the supervisor; their caller
+// holds IRQs so a complete command/measurement group is published atomically.
 DriveConfig control_read_config(void);
 void control_mirror_command(bool enabled, ServoCommand const *command);
 void control_mirror_measurements(DriveMeasurements const *measurements);
 // Register/image codec only; configuration service owns mutation policy and I/O.
+// Defaults/application require startup or maintenance exclusion. These operations
+// restore the caller's IRQ mask and leave all runtime registers untouched.
 void control_reset_config_defaults(void);
 void control_capture_config(ConfigImage *image);
 void control_apply_config(ConfigImage const *image);
 // Service-only primitive: caller has validated the config-only range and holds IRQs.
 void control_apply_config_bytes(uint16_t address, uint16_t length, uint8_t const *data);
-void reset_ram_regs();
+// Startup-only before Drive_Init/ADC/CAN: clear runtime mirrors. No IRQ guard;
+// this is not a runtime disarm operation. Drive_Disarm owns runtime disabling.
+void control_reset_runtime(void);
 
 extern uint8_t regs[REG_MAX];
 

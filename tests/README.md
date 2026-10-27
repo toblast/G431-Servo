@@ -8,6 +8,7 @@ Run from the repository root with PowerShell and a native GCC compiler:
 
 `CC` or `gcc` on `PATH` can select the compiler. Individual suites accept the
 same `-Compiler` argument. Generated sources and executables are ignored.
+Caller/return/unit conventions are in [firmware-conventions.md](../docs/firmware-conventions.md).
 
 | Suite | Production behavior exercised |
 | --- | --- |

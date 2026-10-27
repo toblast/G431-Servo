@@ -4,10 +4,12 @@
 introduce typed application data, a drive supervisor, a separate outer servo
 controller, CAN/application modules, typed motor/fault interfaces, separate
 configuration validation/application/storage and a foreground calibration job
-without changing the command
-protocol or control equations. See the saved
+without changing the command protocol or control equations. The software
+structure roadmap is complete; bench checks and deferred control/reliability
+decisions remain. See the saved
 [professional roadmap](docs/professional-roadmap.md) and
-[current module boundaries](docs/professional-architecture.md).
+[current module boundaries](docs/professional-architecture.md) and
+[firmware conventions](docs/firmware-conventions.md).
 
 Local servo firmware for the ST B-G431B-ESC1 with an AS5600 encoder over I2C.
 The selected project is **`01-Firmware/B-G431B-ESC1-v3`**. Other firmware folders

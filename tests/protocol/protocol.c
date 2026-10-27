@@ -13,10 +13,10 @@ static HAL_StatusTypeDef store_status = HAL_OK;
 #define CHECK(condition) do { if (!(condition)) { \
     fprintf(stderr, "Serial check failed at line %d: %s\n", __LINE__, #condition); ++failures; \
 } } while (0)
-bool Drive_Is_Disarmed(void) { CHECK(test_primask == 1); return !armed && !calibrating && !regs[REG_TORQUE_ENABLE]; }
+bool Drive_IsDisarmed(void) { CHECK(test_primask == 1); return !armed && !calibrating && !regs[REG_TORQUE_ENABLE]; }
 void Drive_Disarm(void) { armed = false; regs[REG_TORQUE_ENABLE] = 0; ++disarms; }
 
-bool Drive_Begin_Maintenance(bool disarm_first)
+bool Drive_BeginMaintenance(bool disarm_first)
 {
     if (!disarm_first) CHECK(test_primask == 1);
     if (maintenance_active || calibrating || (!disarm_first && armed)) return false;
@@ -24,7 +24,7 @@ bool Drive_Begin_Maintenance(bool disarm_first)
     if (disarm_first) Drive_Disarm();
     return true;
 }
-void Drive_End_Maintenance(void) { maintenance_active = false; }
+void Drive_EndMaintenance(void) { maintenance_active = false; }
 bool API_FOC_Is_Calibrating(void) { return calibrating; }
 static uint8_t stored_image[CONFIG_IMAGE_SIZE];
 bool eeprom_empty(void) { return false; }

@@ -26,15 +26,15 @@ Completed:
   persistence, retaining the serial map and flash format.
 - [x] Advance calibration motion through explicit foreground states, preserving
   the trajectory, fault/cancellation checks and guarded completion/storage.
+- [x] Finish convention and documentation consistency: application API names,
+  explicit numeric units/scales, caller/ownership and return contracts, current
+  references and clearly labeled historical guides.
 
-Next software work, in order:
+The revised software-structure list is complete. Follow-up work remains the
+bench measurements and the explicit control/reliability decisions below;
+they require separate validation or a selected policy. CI remains optional.
 
-1. [ ] **Finish convention and documentation consistency.** Apply clear names,
-   explicit units, caller/ownership contracts and consistent error returns as
-   modules are touched, then review the remaining inconsistencies. Preserve
-   working FOC code when the proposed change is only cosmetic.
-
-Throughout these steps:
+Continuing workflow:
 
 - Keep small logical changes and directly test new module interfaces. Retain
   the existing abnormal-condition regressions and build after meaningful code
@@ -49,6 +49,9 @@ below remain pending. Structural refactors do not select new motor-control
 policies or establish hardware validation results.
 
 ## Architecture points saved for later
+
+These are the original design goals, retained as history. The completed list
+above and increments below describe their current implementation status.
 
 1. **Typed application model.** Use `DriveConfig`, `ServoCommand` and
    `DriveStatus` rather than reconstructing values from byte addresses throughout
@@ -171,13 +174,14 @@ sample per pass, at most one 250 us servo update and one 10000 us service update
 with deadlines advanced by their fixed periods. Delayed work catches up over
 later passes. Service uses the original time sample even if acquisition takes
 time. Serial processing is limited to the bytes present when that section starts.
-Calibration remains blocking, with the same button-edge interlocks, cancellation
-and result reporting. Controller, drive, CAN, FOC and encoder implementations
-are unchanged. Inactive trace/debug scaffolding was removed with the old loop.
+At this increment calibration remained blocking, with the same button-edge
+interlocks, cancellation and result reporting. Controller, drive, CAN, FOC and
+encoder implementations are unchanged. Inactive trace/debug scaffolding was
+removed with the old loop.
 
 The application suite directly links `app.c` and the register adapter, checking
 deadlines, phase, rollover, call order, delayed acquisition, faults, button edges,
-blocking calibration, serial refill/shrink and IRQ-mask restoration. Telemetry
+then-blocking calibration, serial refill/shrink and IRQ-mask restoration. Telemetry
 tests also link the application directly and exercise counters through public
 passes, replacing source-text extraction. Startup checks verify application
 initialization after its dependencies. All thirteen regression suites and ARM
@@ -244,14 +248,14 @@ images, invalid stored settings, read/write failures, runtime exclusion, staged
 repairs, guard lifetime, reset failure and preserved reserved bytes. Serial tests
 also link the real configuration path, retaining ARM-race, range and reply/error
 coverage. Both ARM builds pass. Calibration scheduling is implemented in the
-seventh refactor below; conventions and the earlier bench/control/reliability
-decisions remain pending.
+seventh refactor below; conventions are completed in the eighth. The earlier
+bench/control/reliability decisions remain pending.
 Keep the existing local workflow; CI is optional and deferred.
 
 ## Seventh refactor: foreground calibration state machine
 
 `calibration.c` owns one foreground job with explicit coast, settling, forward,
-reverse, endpoint capture, alignment and save states. `Drive_Start_Calibration`
+reverse, endpoint capture, alignment and save states. `Drive_StartCalibration`
 checks entry permission; FOC retains atomic entry/excitation guards and immediate
 coast/cancellation. `App_Process` advances at most one transition after its normal
 jobs and reports completion once. The outer servo calculation is bypassed while
@@ -279,9 +283,36 @@ storage failure and completion/IRQ semantics. Application tests check continued
 services/serial/measurements, excitation ownership, button interlocks and one-shot
 reporting. Hardware timing and motor behavior still require bench validation.
 
+## Eighth refactor: conventions and documentation consistency
+
+Application/service functions use `Module_Action` with a PascalCase action:
+the Drive API now matches App, Config, Calibration and ServoController. The
+register adapter's startup reset is `control_reset_runtime`. Command gain fields
+identify their encoded scale (`position_kp_raw`, `position_kd_raw`,
+`velocity_kp_raw`); sensor timestamps, velocity and accumulated turns carry their
+actual units. Sensor initialization/readiness now return `bool` with the same
+true/false behavior. Production callers and existing test fixtures use these
+interfaces consistently.
+
+Public headers state caller context, pointer lifetime, snapshot/IRQ obligations,
+success/rejection semantics and synchronous work. No-argument public declarations
+use `(void)`. The focused [conventions guide](firmware-conventions.md) records
+names, units, return families, low-level compatibility exceptions and the existing
+local workflow. Current architecture/operating guides link it; illustrated and
+handover documents explicitly identify their historical baseline and link current
+references. Old code maps are not presented as the current implementation.
+
+FOC calculations/implementation, gains, limits, CAN/serial/flash layouts,
+interrupt policy and calibration behavior are unchanged. Existing numerical,
+malformed-input, fault, cancellation and storage regressions validate the rename
+and type cleanup; all thirteen suites and ARM builds at `-Og`/`-O2` pass. No
+new tooling or hardware validation claim is introduced. The software roadmap is
+complete; bench measurements and deferred policy decisions remain pending.
+
 ## Reference documents
 
 - [Current drive contract](servo-drive.md)
 - [Audit and completed fixes](simplified-audit.md)
 - [Firmware pseudocode](firmware-pseudocode.md), recorded for the baseline
 - [Regression suites](../tests/README.md)
+- [Firmware conventions](firmware-conventions.md)

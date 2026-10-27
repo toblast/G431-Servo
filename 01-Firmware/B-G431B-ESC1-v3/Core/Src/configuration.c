@@ -34,20 +34,20 @@ ConfigResult Config_ApplyRegisterWrite(uint16_t address, uint16_t length, uint8_
         return CONFIG_ACCESS_ERROR;
     uint32_t const primask = __get_PRIMASK();
     __disable_irq();
-    bool const allowed = Drive_Begin_Maintenance(false);
+    bool const allowed = Drive_BeginMaintenance(false);
     if (allowed) control_apply_config_bytes(address, length, data);
     __set_PRIMASK(primask);
     if (!allowed) return CONFIG_BUSY;
     bool const saved = Config_Save();
-    Drive_End_Maintenance();
+    Drive_EndMaintenance();
     return saved ? CONFIG_OK : CONFIG_STORAGE_ERROR;
 }
 
 ConfigResult Config_FactoryReset(void)
 {
-    if (!Drive_Begin_Maintenance(true)) return CONFIG_BUSY;
+    if (!Drive_BeginMaintenance(true)) return CONFIG_BUSY;
     control_reset_config_defaults();
     if (Config_Save()) return CONFIG_OK;
-    Drive_End_Maintenance();
+    Drive_EndMaintenance();
     return CONFIG_STORAGE_ERROR;
 }

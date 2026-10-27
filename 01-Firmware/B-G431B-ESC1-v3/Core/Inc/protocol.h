@@ -16,7 +16,10 @@ extern "C" {
 
 uint16_t updateCRC(uint16_t crc_accum, uint8_t *data_blk_ptr, uint16_t data_blk_size);
 void packet_encapsulate(uint32_t payload_status_length);
-void instruction_handler();
+void instruction_handler(void);
+// Foreground-only, nonreentrant parser; consumes one UART byte. Private framing
+// state stays here, configuration policy/storage in Config. IRQs remain enabled
+// for synchronous writes/reset handling. No direct servo arming via serial.
 void packet_handler(char c);
 
 

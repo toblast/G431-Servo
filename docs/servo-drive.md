@@ -5,7 +5,9 @@ For diagrams of the control loops, code modules and runtime behavior, see the
 
 This describes `01-Firmware/B-G431B-ESC1-v3` on `professional`, preserving the
 `simplified` behavior. The [professional architecture](professional-architecture.md)
-documents the supervisor, controller, CAN/application and typed motor/fault interfaces. All angles and
+documents the supervisor, controller, CAN/application and typed motor/fault
+interfaces; [firmware conventions](firmware-conventions.md) records caller and
+return contracts. All angles and
 velocities refer to the **motor shaft**. No gear ratio or throttle travel is
 encoded in firmware. The ESP32 converts its desired actuator position into the
 motor coordinate system.
@@ -23,9 +25,9 @@ Paths below are relative to the selected firmware directory.
 | AS5600 acquisition | `App_Process` schedules foreground `positionSensor_update` → magnet check and angle read in `Core/Src/as5600.c`; prediction and atomic sample publication in `Core/Src/position_sensor.c` |
 | CAN RX and state | `HAL_FDCAN_RxFifo0Callback` forwards to `CanServo_OnRxFifo0` in `can_servo.c` for bounded FIFO handling, frame validation/decoding and reply encoding; drive permission/watchdogs remain in `drive.c` |
 | Watchdogs | `Drive_Service` in `drive.c`, shared `API_FOC_Check_Watchdog` in `foc.c` (also used during calibration), and sample-age check in `positionSensor_getRadiansEstimation` |
-| Position/velocity loop | `App_Process` schedule/acquisition in `app.c` → `ServoController_Update` in `servo_controller.c` → existing PID helper in `pic.c` → `Drive_Publish_Currents` → FOC |
+| Position/velocity loop | `App_Process` schedule/acquisition in `app.c` → `ServoController_Update` in `servo_controller.c` → existing PID helper in `pic.c` → `Drive_PublishCurrents` → FOC |
 | Configuration/fault flags | `config_validation.c` validates typed settings; `configuration.c` applies/persists under drive maintenance; `config_storage.c` transfers the legacy image; register/motor/fault adapters provide the live views |
-| Calibration | Button edge/service → `Drive_Start_Calibration`; each `App_Process` advances `Calibration_Update` in `calibration.c` through guarded FOC excitation primitives |
+| Calibration | Button edge/service → `Drive_StartCalibration`; each `App_Process` advances `Calibration_Update` in `calibration.c` through guarded FOC excitation primitives |
 | Foreground services | `App_Init`/`App_Process` in `app.c`; `main.c` initializes dependencies and repeatedly calls the application |
 | Fatal stop | `Core/Inc/emergency_stop.h`, called by `Error_Handler` and CPU fault handlers in `Core/Src/stm32g4xx_it.c` |
 

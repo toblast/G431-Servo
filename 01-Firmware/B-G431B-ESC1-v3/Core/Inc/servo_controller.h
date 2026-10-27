@@ -12,7 +12,9 @@ typedef struct {
 // One foreground-owned instance. Initialize before the first Update; neither
 // operation is reentrant or callable from an interrupt. Update consumes the
 // caller's current motor-shaft sample and does not acquire sensors or schedule.
-// Config must have passed drive validation. These APIs do not change arming.
+// Input pointers are nonnull, borrowed for this call and never retained. Enabled
+// commands require validated config; disabled snapshots return zero diagnostics
+// even during staged configuration repairs. These APIs do not change arming.
 void ServoController_Init(void);
 ServoSetpoints ServoController_Update(DriveCommandSnapshot const *command,
                                      DriveConfig const *config,

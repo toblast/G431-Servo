@@ -31,7 +31,7 @@ void AppTest_Reset(uint16_t start_us)
     test_primask = 0;
     test_irq_restored = NULL;
     control_reset_config_defaults();
-    reset_ram_regs();
+    control_reset_runtime();
     app_test.position = 123.45f; app_test.velocity = -20.75f;
     app_test.torque = -500; app_test.flux = 123;
     app_test.voltage = 24; app_test.temperature = 30;
@@ -57,7 +57,7 @@ void Drive_Service(void)
     ++app_test.watchdogs; record('W');
     if (app_test.watchdog_disarms) { app_test.command.enabled = false; app_test.disarmed = true; }
 }
-DriveCommandSnapshot Drive_Get_Command(void) { return app_test.command; }
+DriveCommandSnapshot Drive_GetCommand(void) { return app_test.command; }
 void Drive_Disarm(void)
 {
     ++app_test.disarms; record('D');
@@ -65,14 +65,14 @@ void Drive_Disarm(void)
     if (app_test.calibration_active) app_test.calibration_cancelled = true;
 }
 bool API_FOC_Is_Calibrating(void) { return app_test.calibration_active; }
-bool Drive_Is_Disarmed(void) { return app_test.disarmed && !app_test.calibration_active; }
+bool Drive_IsDisarmed(void) { return app_test.disarmed && !app_test.calibration_active; }
 void Calibration_Init(void)
 {
     app_test.calibration_active = app_test.calibration_pending = app_test.calibration_cancelled = false;
 }
-bool Drive_Start_Calibration(void)
+bool Drive_StartCalibration(void)
 {
-    if (!Drive_Is_Disarmed()) ++app_test.errors;
+    if (!Drive_IsDisarmed()) ++app_test.errors;
     ++app_test.calibrations; record('K');
     if (app_test.calibration_start_rejected) return false;
     app_test.calibration_active = true;
@@ -95,7 +95,7 @@ bool Calibration_TakeResult(CalibrationResult *result)
     app_test.calibration_pending = false;
     return true;
 }
-void Drive_Publish_Measurements(DriveMeasurements const *measurements)
+void Drive_PublishMeasurements(DriveMeasurements const *measurements)
 {
     if (test_primask != 1) ++app_test.errors;
     ++app_test.publications; record('M');

@@ -55,9 +55,9 @@ void control_mirror_command(bool enabled, ServoCommand const *command)
     regs[REG_GOAL_TORQUE_CURRENT_MA_H] = HIGH_BYTE(command->torque_mA);
     regs[REG_GOAL_FLUX_CURRENT_MA_L] = LOW_BYTE(command->flux_mA);
     regs[REG_GOAL_FLUX_CURRENT_MA_H] = HIGH_BYTE(command->flux_mA);
-    regs[REG_GOAL_POS_KP] = command->pos_kp;
-    regs[REG_GOAL_POS_KD] = command->pos_kd;
-    regs[REG_GOAL_VEL_KP] = command->vel_kp;
+    regs[REG_GOAL_POS_KP] = command->position_kp_raw;
+    regs[REG_GOAL_POS_KD] = command->position_kd_raw;
+    regs[REG_GOAL_VEL_KP] = command->velocity_kp_raw;
 }
 
 void control_mirror_measurements(DriveMeasurements const *measurements)
@@ -186,7 +186,7 @@ void control_apply_config_bytes(uint16_t address, uint16_t length, uint8_t const
 	memcpy(&regs[address], data, length);
 }
 
-void reset_ram_regs()
+void control_reset_runtime(void)
 {
 	memset(&regs[REG_TORQUE_ENABLE],0,REG_MAX-REG_TORQUE_ENABLE);
 }

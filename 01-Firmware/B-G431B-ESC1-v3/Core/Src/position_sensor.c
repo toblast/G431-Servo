@@ -18,16 +18,16 @@ extern TIM_HandleTypeDef htim6;
 
 typedef struct {
 
-	int initialized;
+	bool initialized;
 
 	// AS5600 handle
 	AS5600_TypeDef *as5600Handle;
 
 	// common sensor values
-	uint16_t lastUpdate;
+	uint16_t last_sample_us;
     uint16_t last_angle_data;
-    float velocity_deg;
-	float velocity_rad;
+    float velocity_dps;
+	float velocity_radps;
 
 	float angle_rad;
 	float angle_deg;
@@ -35,7 +35,7 @@ typedef struct {
     float angle_prev_rad;
     float angle_prev_deg;
 
-    float full_rotation_offset;
+    float full_rotation_offset_rad;
 
 } positionSensor_t;
 
@@ -43,12 +43,12 @@ static positionSensor_t sensor_storage;
 static positionSensor_t *const sensor = &sensor_storage;
 static AS5600_TypeDef as5600_storage;
 
-int positionSensor_isReady(void)
+bool positionSensor_isReady(void)
 {
     return sensor->initialized;
 }
 
-int positionSensor_init(void)
+bool positionSensor_init(void)
 {
     uint16_t angle_data;
     memset(sensor, 0, sizeof(*sensor));
@@ -59,22 +59,22 @@ int positionSensor_init(void)
         AS5600_GetAngle(sensor->as5600Handle, &angle_data) != HAL_OK)
     {
         hardware_fault_set(DRIVE_FAULT_ENCODER_READ);
-        return 0;
+        return false;
     }
     sensor->last_angle_data = angle_data;
     sensor->angle_rad = (float)angle_data * (M_2PI / 4096.0f);
     sensor->angle_deg = RADIANS_TO_DEGREES(sensor->angle_rad);
     sensor->angle_prev_rad = sensor->angle_rad;
     sensor->angle_prev_deg = sensor->angle_deg;
-    sensor->lastUpdate = __HAL_TIM_GET_COUNTER(&htim6);
-    sensor->initialized = 1;
-    return 1;
+    sensor->last_sample_us = __HAL_TIM_GET_COUNTER(&htim6);
+    sensor->initialized = true;
+    return true;
 }
 
 float positionSensor_getRadiansEstimation(uint16_t time_us)
 {
     if (!sensor->initialized) return 0.0f;
-    uint16_t const delta_t_us = (uint16_t)(time_us - sensor->lastUpdate);
+    uint16_t const delta_t_us = (uint16_t)(time_us - sensor->last_sample_us);
     if (delta_t_us > 1200U)
     {
         hardware_fault_set(DRIVE_FAULT_ENCODER_STALE);
@@ -84,7 +84,7 @@ float positionSensor_getRadiansEstimation(uint16_t time_us)
     if (!control_torque_requested())
         hardware_fault_clear(DRIVE_FAULT_ENCODER_STALE);
     // Compensate the existing AS5600 slow-filter latency (200 us).
-    return sensor->angle_rad + sensor->velocity_rad * (float)(delta_t_us + 200U) / 1000000.0f;
+    return sensor->angle_rad + sensor->velocity_radps * (float)(delta_t_us + 200U) / 1000000.0f;
 }
 
 void positionSensor_update(void){
@@ -107,7 +107,7 @@ void positionSensor_update(void){
 
     // Timestamp completion consistently with the initial sample.
     uint16_t const now_us = __HAL_TIM_GET_COUNTER(&htim6);
-    uint16_t const delta_time_us = (uint16_t)(now_us - sensor->lastUpdate);
+    uint16_t const delta_time_us = (uint16_t)(now_us - sensor->last_sample_us);
     if (delta_time_us == 0) return;
     positionSensor_t next = *sensor;
 
@@ -116,25 +116,25 @@ void positionSensor_update(void){
     // to basically infinity
     d_angle = (float)(angle_data - next.last_angle_data);
     // if overflow happened track it as full rotation
-    if(fabsf(d_angle) > (0.8*cpr) ) next.full_rotation_offset += d_angle > 0 ? -M_2PI : M_2PI;
+    if(fabsf(d_angle) > (0.8*cpr) ) next.full_rotation_offset_rad += d_angle > 0 ? -M_2PI : M_2PI;
     // save the current angle value for the next steps
     // in order to know if overflow happened
     next.last_angle_data = angle_data;
 
     // return the full angle
     // (number of full rotations)*2PI + current sensor angle
-    next.angle_rad = next.full_rotation_offset + ( (float)angle_data / (float)cpr) * M_2PI;
+    next.angle_rad = next.full_rotation_offset_rad + ( (float)angle_data / (float)cpr) * M_2PI;
     next.angle_deg = RADIANS_TO_DEGREES(next.angle_rad);
 
     // velocity calculation
-    next.velocity_rad = ((next.angle_rad - next.angle_prev_rad)/delta_time_us* 1000000.0f);
-    next.velocity_deg = ((next.angle_deg - next.angle_prev_deg)/delta_time_us* 1000000.0f);
+    next.velocity_radps = ((next.angle_rad - next.angle_prev_rad)/delta_time_us* 1000000.0f);
+    next.velocity_dps = ((next.angle_deg - next.angle_prev_deg)/delta_time_us* 1000000.0f);
 
     // last angle
     next.angle_prev_rad = next.angle_rad;
     next.angle_prev_deg = next.angle_deg;
 
-    next.lastUpdate = now_us;
+    next.last_sample_us = now_us;
 
     // No blocking work runs with IRQs masked. FOC sees one complete sample.
     uint32_t const primask = __get_PRIMASK();
@@ -156,5 +156,5 @@ float positionSensor_getDegreesMultiturn(void)
 
 float positionSensor_getVelocityDps(void)
 {
-    return sensor->initialized ? sensor->velocity_deg : 0.0f;
+    return sensor->initialized ? sensor->velocity_dps : 0.0f;
 }
