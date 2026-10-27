@@ -1,4 +1,10 @@
-# G431 servo drive — professional branch
+# G431 servo drive and ESP32 cruise controller
+
+The `codex/esp32-cruise-control` branch adds a separate
+[ESP32 MicroPython project](01-Firmware/ESP32-Cruise/README.md) for conditioned
+speed/brake/clutch/button inputs and the road-speed PID. It computes diagnostic
+throttle demand; CAN actuation and hardware calibration are still pending.
+The completed `professional` STM32 software baseline is preserved.
 
 **New to the codebase? Start with the [firmware reading guide](docs/code-guide/README.md).**
 It includes a reading route, module/function/call reference, type meanings and
@@ -17,11 +23,12 @@ decisions remain. See the saved
 
 Local servo firmware for the ST B-G431B-ESC1 with an AS5600 encoder over I2C.
 The selected project is **`01-Firmware/B-G431B-ESC1-v3`**. Other firmware folders
-are upstream experiments and are outside this branch's validation.
+are upstream experiments, except for the new ESP32 counterpart described above.
 
 The STM32 owns commutation, FOC/current control, encoder acquisition, the outer
 servo loop and local faults. An ESP32 owns cruise control and sends commands
-over CAN. No vehicle speed, brake, clutch or cruise-control logic runs here.
+over CAN. Vehicle speed, brake, clutch and cruise-control logic belongs in the
+ESP32 project; none runs in the STM32 firmware.
 
 - Power-up is DISARMED, with motor outputs disabled in coast mode.
 - Explicit 8-byte ARM and DISARM messages; one 8-byte servo command format.
@@ -52,7 +59,7 @@ make -C 01-Firmware/B-G431B-ESC1-v3 -j4 all
 ./tests/run.ps1 -Compiler 'C:/path/to/native/gcc.exe'
 ```
 
-This branch has software tests and an ARM build. Hardware timing, current
+The STM32 baseline has software tests and an ARM build. Hardware timing, current
 calibration, tuning and coast/back-drive behavior still require bench validation.
 Old EEPROM settings can fail the new checks; configure the 12-bit encoder,
 actual motor pole pairs and conservative limits while disarmed. The factory

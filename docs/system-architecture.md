@@ -491,7 +491,10 @@ Brake or clutch activation:
 
     cancel cruise
 
-Final state-machine details remain to be implemented on the ESP32.
+The first ESP32 implementation now captures speed on a fresh debounced press,
+cancels on a second press or raw brake/clutch assertion, and requires release
+and a fresh press after cancellation or invalid inputs. It computes diagnostic
+demand only; connecting these states to drive ARM/DISARM remains pending.
 
 ---
 
@@ -513,6 +516,14 @@ If MicroPython CAN/TWAI support becomes limiting, the project can migrate to:
     ESP-IDF / C / C++
 
 without changing the overall system architecture.
+
+The `codex/esp32-cruise-control` branch implements the first MicroPython
+[input acquisition and road-speed PID increment](../01-Firmware/ESP32-Cruise/README.md).
+It uses a native pulse counter, conditioned digital brake/clutch/button inputs
+and a separate, host-testable speed PID with output saturation and anti-windup.
+Input pins, polarities, wheel geometry, pulse count, speed limits and PID gains
+are required configuration and remain undecided. There is no CAN actuation
+in this increment, and no motor-angle or gear-ratio assumption.
 
 ---
 

@@ -9,12 +9,18 @@ for a 2015 Kawasaki Ninja 300.
 
 The current working branch is:
 
-    professional
+    codex/esp32-cruise-control
 
-This branch starts from `simplified` and improves software ownership, module
-boundaries and testability through small behavior-preserving refactors. The
-simplification goals and hardware/control constraints below remain applicable.
-The saved roadmap is `docs/professional-roadmap.md`.
+This branch starts from the completed `professional` software baseline, which
+refactored `simplified` for clearer ownership and testability. The simplification
+goals and hardware/control constraints below remain applicable.
+The saved STM32 roadmap is `docs/professional-roadmap.md`.
+
+This branch also adds the explicitly requested high-level ESP32 project in
+`01-Firmware/ESP32-Cruise`. Motorcycle input acquisition and road-speed PID belong
+there. Preserve the finished STM32 servo-drive implementation; do not move cruise
+logic into its fast motor-control stack. This first ESP32 increment computes
+bench diagnostic demand only; hardware calibration and CAN actuation are separate.
 
 The STM32G431 motor controller is only the local servo drive.
 

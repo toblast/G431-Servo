@@ -1,5 +1,13 @@
 # Firmware regression checks
 
+The table and native GCC runner below cover the STM32 servo drive.
+The separate [ESP32 input and speed PID project](../01-Firmware/ESP32-Cruise/README.md)
+uses Python's standard library tests and needs no native compiler:
+
+```powershell
+python -m unittest discover -s 01-Firmware/ESP32-Cruise/tests -v
+```
+
 Run from the repository root with PowerShell and a native GCC compiler:
 
 ```powershell
