@@ -18,7 +18,7 @@ $generated = $fixture.Replace('/* GLOBALS */', $source.Substring($globalStart, $
 $sourcePath = Join-Path $buildDirectory 'cordic.c'
 $exePath = Join-Path $buildDirectory 'cordic.exe'
 [IO.File]::WriteAllText($sourcePath, $generated)
-& $compilerCommand.Source -std=gnu99 -O2 -Wall -Wextra -Wno-unused-variable -I (Join-Path $PSScriptRoot 'mocks') -I (Join-Path $firmwareRoot 'Core/Inc') $sourcePath (Join-Path $firmwareRoot 'Core/Src/math_tool.c') -o $exePath -lm
+& $compilerCommand.Source -std=gnu99 -O2 -Wall -Wextra -Wno-unused-variable -I (Join-Path $PSScriptRoot 'mocks') -I (Join-Path $firmwareRoot 'Core/Inc') $sourcePath (Join-Path $firmwareRoot 'Core/Src/math_tool.c') (Join-Path $firmwareRoot 'Core/Src/drive_faults.c') (Join-Path $firmwareRoot 'Core/Src/motor_config.c') -o $exePath -lm
 if ($LASTEXITCODE -ne 0) { throw 'CORDIC compilation failed.' }
 & $exePath
 if ($LASTEXITCODE -ne 0) { throw 'CORDIC regression failed.' }

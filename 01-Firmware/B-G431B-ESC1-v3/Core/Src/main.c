@@ -208,7 +208,7 @@ int main(void)
   load_eeprom_regs();
   reset_ram_regs();
   Drive_Init();
-  if (!control_configuration_valid()) hardware_fault_set(1U << HW_ERROR_BIT_CONFIGURATION);
+  if (!control_configuration_valid()) hardware_fault_set(DRIVE_FAULT_CONFIGURATION);
   HAL_Serial_Init(&huart2,&serial);
   if (!positionSensor_init())
   {

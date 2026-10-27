@@ -18,7 +18,7 @@ $exe = Join-Path $build 'sensor-tests.exe'
 $env:PATH = (Split-Path $Compiler -Parent) + ';' + $env:PATH
 & $Compiler -std=c99 -Wall -Wextra -I (Join-Path $PSScriptRoot 'mocks') `
     -I (Join-Path $root '01-Firmware/B-G431B-ESC1-v3/Core/Inc') `
-    (Join-Path $PSScriptRoot 'test_sensor.c') -o $exe -lm
+    (Join-Path $PSScriptRoot 'test_sensor.c') (Join-Path $root '01-Firmware/B-G431B-ESC1-v3/Core/Src/drive_faults.c') (Join-Path $root '01-Firmware/B-G431B-ESC1-v3/Core/Src/motor_config.c') -o $exe -lm
 if ($LASTEXITCODE -ne 0) { throw 'Sensor regression compilation failed.' }
 & $exe $Group
 if ($LASTEXITCODE -ne 0) { throw 'Sensor regressions failed.' }

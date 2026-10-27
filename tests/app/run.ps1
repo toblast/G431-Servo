@@ -8,7 +8,7 @@ $build = Join-Path $root 'build/tests/app'
 New-Item -ItemType Directory -Force -Path $build | Out-Null
 foreach ($optimization in @('O0', 'O2')) {
     $exe = Join-Path $build "app-$optimization.exe"
-    & $cc -std=gnu99 "-$optimization" -Wall -Wextra -Werror -I (Join-Path $PSScriptRoot 'stubs') -I (Join-Path $firmware 'Core/Inc') (Join-Path $PSScriptRoot 'app.c') (Join-Path $PSScriptRoot 'app_fixture.c') (Join-Path $firmware 'Core/Src/app.c') (Join-Path $firmware 'Core/Src/control_table.c') -o $exe -lm
+    & $cc -std=gnu99 "-$optimization" -Wall -Wextra -Werror -I (Join-Path $PSScriptRoot 'stubs') -I (Join-Path $firmware 'Core/Inc') (Join-Path $PSScriptRoot 'app.c') (Join-Path $PSScriptRoot 'app_fixture.c') (Join-Path $firmware 'Core/Src/app.c') (Join-Path $firmware 'Core/Src/control_table.c') (Join-Path $firmware 'Core/Src/drive_faults.c') -o $exe -lm
     if ($LASTEXITCODE -ne 0) { throw "Application compilation failed ($optimization)." }
     & $exe
     if ($LASTEXITCODE -ne 0) { throw "Application regressions failed ($optimization)." }

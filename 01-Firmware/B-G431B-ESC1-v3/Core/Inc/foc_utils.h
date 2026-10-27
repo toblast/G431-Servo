@@ -9,7 +9,7 @@
 #define INC_FOC_UTILS_H_
 
 #include "math_tool.h"
-#include "control_table.h"
+#include "drive_faults.h"
 #include <stdbool.h>
 
 // hard-coded settings
@@ -47,7 +47,7 @@ static inline __attribute__((always_inline)) void LL_FOC_set_phase_voltage( floa
 	if (!isfinite(present_voltage_V) || present_voltage_V <= 0.0f || !isfinite(Vd) || !isfinite(Vq) ||
 		!isfinite(cosine_theta) || !isfinite(sine_theta))
 	{
-		hardware_fault_set(1U << HW_ERROR_BIT_INTERNAL);
+		hardware_fault_set(DRIVE_FAULT_INTERNAL);
 		LL_FOC_coast();
 		return;
 	}
@@ -67,7 +67,7 @@ static inline __attribute__((always_inline)) void LL_FOC_set_phase_voltage( floa
 	// Reject invalid duties before conversion to timer counts.
 	if (!isfinite(duty_cycle_PWMa) || !isfinite(duty_cycle_PWMb) || !isfinite(duty_cycle_PWMc))
 	{
-		hardware_fault_set(1U << HW_ERROR_BIT_INTERNAL);
+		hardware_fault_set(DRIVE_FAULT_INTERNAL);
 		LL_FOC_coast();
 		return;
 	}

@@ -62,7 +62,7 @@ static void load_eeprom_regs(void) { configuration_loaded = true; }
 static void reset_ram_regs(void) { ram_reset = true; }
 static void Drive_Init(void) { assert(ram_reset && !can_ready); }
 static bool control_configuration_valid(void) { return true; }
-#define HW_ERROR_BIT_CONFIGURATION 7
+#define DRIVE_FAULT_CONFIGURATION (1U << 7)
 static void hardware_fault_set(uint8_t bits) { (void)bits; }
 static void HAL_Serial_Init(int *uart, int *handler) { (void)uart; (void)handler; serial_ready = true; }
 static int positionSensor_init(void) { sensor_ready = true; return 1; }

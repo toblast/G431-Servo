@@ -42,11 +42,13 @@ Core/Src/can_servo.c \
 Core/Src/control_table.c \
 Core/Src/cordic.c \
 Core/Src/drive.c \
+Core/Src/drive_faults.c \
 Core/Src/eeprom.c \
 Core/Src/foc.c \
 Core/Src/foc_utils.c \
 Core/Src/main.c \
 Core/Src/math_tool.c \
+Core/Src/motor_config.c \
 Core/Src/pic.c \
 Core/Src/position_sensor.c \
 Core/Src/protocol.c \

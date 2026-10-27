@@ -62,14 +62,14 @@ void API_FOC_Service_Update(void)
     last_service = clock_us;
     ++services;
 }
-HAL_StatusTypeDef store_eeprom_regs(void)
+bool control_persist_config(void)
 {
     CHECK(API_FOC_Is_Calibrating());
     CHECK(foc_state == FOC_STATE_IDLE && setpoint_flux_voltage_V == 0);
     CHECK(!calibration_cancelled && hardware_fault_status() == 0);
     ++stores;
     if (store_status != HAL_OK) hardware_fault_set(1U << HW_ERROR_BIT_INTERNAL);
-    return store_status;
+    return store_status == HAL_OK;
 }
 /* FUNCTIONS */
 

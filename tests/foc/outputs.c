@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "foc_utils.h"
+#include "control_table.h"
 
 uint8_t regs[REG_MAX];
 static TIM_TypeDef timer;

@@ -70,9 +70,9 @@ static void update_servo(void)
 static void service(void)
 {
     if (!control_configuration_valid()) {
-        hardware_fault_set(1U << HW_ERROR_BIT_CONFIGURATION);
+        hardware_fault_set(DRIVE_FAULT_CONFIGURATION);
         Drive_Disarm();
-    } else hardware_fault_clear(1U << HW_ERROR_BIT_CONFIGURATION);
+    } else hardware_fault_clear(DRIVE_FAULT_CONFIGURATION);
     API_FOC_Service_Update();
 
     HAL_GPIO_WritePin(STATUS_GPIO_Port, STATUS_Pin,

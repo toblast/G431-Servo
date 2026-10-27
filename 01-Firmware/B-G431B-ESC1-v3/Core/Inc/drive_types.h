@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "drive_faults.h"
 
 // Active application settings. Gain fields retain their existing register scale.
 typedef struct {
@@ -44,7 +45,7 @@ typedef struct {
 
 typedef struct {
     DriveState state;
-    uint8_t faults;
+    DriveFaultFlags faults;
     uint32_t generation;
     bool armed; // Command permission, not proof that PWM outputs are enabled.
     uint32_t last_command_ms;

@@ -56,7 +56,7 @@ bool Drive_Request_Arm(void)
     bool accepted = false;
     if (API_FOC_Is_Calibrating()) goto done;
     if (drive.maintenance || !control_configuration_valid()) {
-        hardware_fault_set(1U << HW_ERROR_BIT_CONFIGURATION);
+        hardware_fault_set(DRIVE_FAULT_CONFIGURATION);
         goto done;
     }
     if (!positionSensor_isReady() || hardware_fault_status() != 0) goto done;
@@ -184,7 +184,7 @@ DriveStatus Drive_Get_Status(void)
 {
     uint32_t const primask = __get_PRIMASK();
     __disable_irq();
-    uint8_t const faults = hardware_fault_status();
+    DriveFaultFlags const faults = hardware_fault_status();
     DriveStatus const result = {
         .state = faults ? DRIVE_FAULT : API_FOC_Is_Calibrating() ? DRIVE_CALIBRATING :
                  drive.maintenance ? DRIVE_MAINTENANCE : drive.armed ? DRIVE_ARMED : DRIVE_DISARMED,

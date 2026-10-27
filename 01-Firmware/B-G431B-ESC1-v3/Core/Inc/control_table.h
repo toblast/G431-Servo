@@ -11,6 +11,7 @@
 #include "stm32g4xx_hal.h"
 #include <stdbool.h>
 #include "drive_types.h"
+#include "motor_config.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -169,9 +170,6 @@ extern "C" {
 
 #define REG_MIN_POSITION_DEG_VALUE 			-800   	// deg
 #define REG_MAX_POSITION_DEG_VALUE 			800		// deg
-#define SERVO_BENCH_MAX_CURRENT_MA             1000U
-#define SERVO_BENCH_OVERCURRENT_MA             1500U  // measured phase-current trip, provisional
-#define SERVO_BENCH_MAX_VELOCITY_DPS            360U
 #define REG_MAX_VELOCITY_DPS_VALUE             360     // rotor dps, initial bench envelope
 #define REG_MAX_ACCELERATION_DPSS_VALUE		0		// dpss
 #define REG_MAX_CURRENT_MA_VALUE               500     // mA, initial bench limit
@@ -243,33 +241,8 @@ HAL_StatusTypeDef factory_reset_eeprom_regs();
 void load_eeprom_regs();
 HAL_StatusTypeDef store_eeprom_regs();
 void reset_ram_regs();
-// This validates parameter values only. Maintenance/arming policy belongs to drive.c.
-bool control_configuration_valid(void);
 
 extern uint8_t regs[REG_MAX];
-
-// The fault byte is shared by foreground services and fast control interrupts.
-static inline uint8_t hardware_fault_status(void)
-{
-    return *(volatile uint8_t *)&regs[REG_HARDWARE_ERROR_STATUS];
-}
-
-static inline void hardware_fault_set(uint8_t bits)
-{
-    uint32_t const primask = __get_PRIMASK();
-    __disable_irq();
-    *(volatile uint8_t *)&regs[REG_HARDWARE_ERROR_STATUS] = hardware_fault_status() | bits;
-    __set_PRIMASK(primask);
-}
-
-static inline void hardware_fault_clear(uint8_t bits)
-{
-    uint32_t const primask = __get_PRIMASK();
-    __disable_irq();
-    *(volatile uint8_t *)&regs[REG_HARDWARE_ERROR_STATUS] = hardware_fault_status() & (uint8_t)~bits;
-    __set_PRIMASK(primask);
-}
-
 
 #ifdef __cplusplus
 }

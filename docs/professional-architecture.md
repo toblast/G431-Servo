@@ -3,8 +3,8 @@
 Branch `professional`, based on `simplified` at `8629fd6`. The first increment
 introduced the typed model and drive supervisor; the second extracted the outer
 servo controller; the third extracted CAN handling; the fourth extracts the
-foreground application scheduler. All preserve the selected firmware's motor
-behavior.
+foreground application scheduler; the fifth adds typed low-level motor/fault
+boundaries. All preserve the selected firmware's motor behavior.
 
 ## Current boundaries
 
@@ -13,6 +13,8 @@ behavior.
 | `drive_types.h` | HAL-independent `DriveConfig`, `ServoCommand`, command snapshot, measurements, state and status types; explicit units and existing gain scales |
 | `drive.c` / `drive.h` | Private owner of arming, accepted command, generation, timestamp, maintenance permission and measured-status snapshot; ARM/DISARM, watchdog service and guarded current publication |
 | `control_table.c` | Legacy serial/flash register adapter, pure parameter validation, typed configuration reads, command/status mirrors |
+| `motor_config.c` / `motor_config.h` | Narrow live motor/protection/alignment views; coherent calibration alignment access, torque-permission view and encoder diagnostic counter adapter |
+| `drive_faults.c` / `drive_faults.h` | Named eight-bit fault masks and live diagnostic-byte access; atomic set/clear with unchanged bit assignments and recovery policies |
 | `servo_controller.c` / `servo_controller.h` | Foreground-owned PD/filter history and arm-generation tracking; typed setpoint calculation and guarded publication through the drive supervisor |
 | `can_servo.c` / `can_servo.h` | Bound FDCAN handle, private transport buffers, bounded FIFO draining, frame validation, typed command dispatch and four-byte feedback encoding |
 | `app.c` / `app.h` | Foreground deadlines/counters, sensor acquisition, controller invocation, measurement/diagnostic publication, periodic services, LED/button and bounded serial processing |
@@ -31,6 +33,8 @@ flowchart TD
     Servo -->|guarded Iq and Id publication| Drive
     Servo -->|diagnostic setpoints| App
     Drive --> FOC[Existing FOC and PWM]
+    Config -->|typed motor and protection views| FOC
+    FOC -->|typed calibration alignment| Config
     App -->|typed measurements| Drive
     Drive -->|command and status mirrors| Config
     UART[Serial configuration / reset] -->|maintenance permission| Drive
@@ -82,6 +86,20 @@ view, not a replacement for FOC's internal modes or a new CAN telemetry format.
   with zero gains/feed-forward. A duplicate ARM preserves the current command.
 - Current publication rechecks permission, faults, calibration and generation
   atomically. An older calculation cannot publish after DISARM/rearm.
+- FOC consumes one narrow, coherent `MotorControlConfig` snapshot per update,
+  retaining the existing gain divisions and angle arithmetic. Alignment is signed
+  degrees; manual trim is unsigned degrees, matching the legacy byte encoding.
+  Protection services consume typed temperature/bus limits. The live permission
+  accessor preserves the existing nonzero torque-register semantics.
+- Motor snapshots and complete alignment writes restore the caller's IRQ mask.
+  They decode the existing image on demand, with no cached copy or new apply
+  policy. Calibration alignment rollback uses the same original bits; persistence
+  delegates through `control_persist_config` to unchanged whole-image storage.
+- Fault access uses named `DriveFault` masks and an eight-bit `DriveFaultFlags`
+  value. The diagnostic byte remains authoritative. Reads stay live; set/clear
+  preserve unrelated flags atomically. Fast motor/permission readers and fault
+  helpers execute from CCMRAM. Encoder read-error accounting retains the existing
+  wrapping diagnostic byte even though its legacy register name refers to CRC.
 - `ServoController_Init` initializes one foreground-owned controller before the
   first servo tick. `ServoController_Update` consumes typed command/configuration
   snapshots and the caller's current motor-shaft position/velocity sample. It
@@ -114,8 +132,10 @@ register addresses, single-page flash layout, parameter limits, 1000 ms CAN and
 policy and calibration trajectory remain the baseline behavior. The derivative
 is still per sample and CAN commands still supply zero velocity gain.
 
-FOC and encoder internals still read some legacy registers. Startup/peripheral
-setup remains in `main.c`. Calibration remains blocking. These are
+FOC/PWM and encoder consumers use typed interfaces; their adapters retain the
+legacy register image. Configuration/persistence responsibilities still need
+clarification. Startup/peripheral setup remains in `main.c` and calibration
+remains blocking. These are
 recorded later increments in the [roadmap](professional-roadmap.md), not hidden
 claims of a completed application-wide rewrite. The earlier illustrated guide
 shows the baseline integration; this document describes the new extraction.
@@ -151,6 +171,14 @@ dispatch, configuration faults, button interlocks, bounded serial work and IRQ
 restoration. Telemetry counter tests drive public passes instead of injecting
 counters; saturation, NaN/infinity and zero-uptime coverage is retained.
 
+Configuration tests link the real motor/fault adapters at `-O0` and `-O2` and
+cover signed/unsigned fields, gain scales, coherent snapshots, complete alignment
+publication/restore, nonzero permission, wrapping diagnostics, all eight fault
+bits, unrelated-bit preservation, nested IRQ masks and persistence failures.
+Existing suites also link the real fault backend; FOC/encoder/calibration tests
+link the motor adapter. CORDIC/FOC checks now include successful gain and angle
+consumption as well as the original failure paths and immediate disable.
+
 Validated on 2026-10-27:
 
 - All thirteen host regression suites passed with native GCC 4.7.0, including
@@ -158,9 +186,11 @@ Validated on 2026-10-27:
   and `-O2`, with zero failures.
 - Fresh ARM GCC 14.3.1 builds passed at `-Og` and `-O2`. Both retain the
   existing linker warning about a load segment with RWX permissions.
-- Baseline comparison confirms no source changes to `foc.c`, `foc_utils.h`,
-  `position_sensor.c`, `pic.c` or `math_tool.c`.
+- FOC/PWM/encoder changes are limited to typed input/output and fault access;
+  their transforms, PI equations, sensing/prediction, limits and fault policies
+  are retained. `pic.c`, `math_tool.c` and `as5600.c` are unchanged.
 
 This verifies software regressions and compilation. Interrupt duration,
 foreground jitter and physical motor behavior still require the recorded bench
-checks; the additional snapshot copies have not been timed on hardware.
+checks; motor snapshot critical sections and the added interface calls have not
+been timed on hardware.

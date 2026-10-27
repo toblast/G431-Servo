@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "control_table.h"
 
 #include "../../01-Firmware/B-G431B-ESC1-v3/Core/Src/as5600.c"
 #include "../../01-Firmware/B-G431B-ESC1-v3/Core/Src/position_sensor.c"

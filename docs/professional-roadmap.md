@@ -20,21 +20,20 @@ Completed:
 - [x] Extract CAN frame handling and private transport buffers.
 - [x] Extract foreground application scheduling, acquisition, telemetry and
   periodic services into `app.c`.
+- [x] Add typed configuration, alignment, permission and fault interfaces for
+  FOC/PWM and encoder consumers, preserving the existing register image.
 
 Next software work, in order:
 
-1. [ ] **Complete typed configuration and fault boundaries.** Replace remaining
-   raw-register dependencies in FOC and encoder code with explicit interfaces.
-   Preserve units/scales, fast control calculations and fault/shutdown behavior.
-2. [ ] **Clarify configuration and persistence responsibilities.** Give
+1. [ ] **Clarify configuration and persistence responsibilities.** Give
    validation, application and storage clear interfaces while preserving the
    existing serial addresses and flash format. CRC, transactional storage and
    migration remain separate later reliability work.
-3. [ ] **Make calibration nonblocking.** Advance explicit calibration states
+2. [ ] **Make calibration nonblocking.** Advance explicit calibration states
    through the normal foreground scheduler, preserving the trajectory,
    cancellation, fault checks and completion/storage behavior. This is a
    behavior-sensitive change and needs corresponding abnormal-condition tests.
-4. [ ] **Finish convention and documentation consistency.** Apply clear names,
+3. [ ] **Finish convention and documentation consistency.** Apply clear names,
    explicit units, caller/ownership contracts and consistent error returns as
    modules are touched, then review the remaining inconsistencies. Preserve
    working FOC code when the proposed change is only cosmetic.
@@ -139,9 +138,9 @@ limits, phase reversal and zero position-integral gain are preserved. No CAN
 field, rate, watchdog threshold, FOC or encoder implementation changed.
 The directly linked servo suite covers numerical behavior and publication races.
 
-Roadmap item 3 remains partial: configuration/persistence separation and low-level
-register coupling remain later increments. CAN handling and application scheduling
-are extracted in the third and fourth refactors below.
+Roadmap item 3 remains partial: configuration/persistence responsibilities remain
+to be clarified. CAN handling, application scheduling and typed low-level
+boundaries are implemented in the later increments below.
 
 ## Third refactor: CAN transport and protocol handling
 
@@ -189,9 +188,38 @@ passes, replacing source-text extraction. Startup checks verify application
 initialization after its dependencies. All thirteen regression suites and ARM
 builds at `-Og`/`-O2` pass.
 
-The next pending point is typed configuration/fault boundaries. Nonblocking
-calibration, configuration/persistence separation, wider convention consistency
-and the earlier control/hardware decisions remain pending.
+Typed configuration/fault boundaries are implemented in the fifth refactor below.
+
+## Fifth refactor: typed motor configuration and faults
+
+`motor_config.h` exposes narrow `MotorControlConfig`, `MotorProtectionConfig` and
+`MotorAlignment` views. `motor_config.c` owns their legacy register decoding,
+coherent alignment reads/writes, live torque-permission access and encoder error
+counter updates. FOC, PWM helpers and the encoder no longer access the control
+register map. Gain divisors, signed alignment/unsigned trim, limits, sensor
+prediction, current regulation, shutdown behavior and calibration trajectory
+remain unchanged. Calibration saves through a boolean bridge to the existing
+whole-image storage and retains its failure/rollback behavior.
+
+`drive_faults.h` defines named masks and `DriveFaultFlags` with the same eight
+serial bit assignments. Its implementation retains the existing diagnostic byte
+as authoritative storage. Set/clear operations preserve unrelated bits and the
+caller IRQ mask. Fast motor readers and fault helpers are placed in CCMRAM;
+the motor snapshot uses a short critical section. No second configuration cache,
+new persistence format or fault-recovery policy is introduced.
+
+All thirteen suites pass. Added checks cover typed signedness/scales, coherent
+snapshots, complete alignment publication/restore, permission semantics, wrapping
+encoder diagnostics, every fault bit, IRQ masks, persistence error propagation
+and successful FOC gain/angle consumption. Existing calibration cancellation,
+encoder failure, immediate coast and malformed CAN regressions remain. ARM
+builds at `-Og` and `-O2` pass; hardware timing of the added interface calls and
+snapshot critical section still requires bench measurement.
+
+The next pending point is configuration/persistence responsibilities. Nonblocking
+calibration, wider convention consistency and the earlier control/hardware
+decisions remain pending. Keep the existing local build/test workflow; CI stays
+optional and deferred.
 
 ## Reference documents
 

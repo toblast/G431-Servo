@@ -184,12 +184,17 @@ void load_eeprom_regs()
 HAL_StatusTypeDef store_eeprom_regs()
 {
 	HAL_StatusTypeDef const result = eeprom_store(regs, REG_TORQUE_ENABLE);
-	if (result != HAL_OK) hardware_fault_set(1U << HW_ERROR_BIT_INTERNAL);
+	if (result != HAL_OK) hardware_fault_set(DRIVE_FAULT_INTERNAL);
 	return result;
 }
 
 void reset_ram_regs()
 {
 	memset(&regs[REG_TORQUE_ENABLE],0,REG_MAX-REG_TORQUE_ENABLE);
+}
+
+bool control_persist_config(void)
+{
+    return store_eeprom_regs() == HAL_OK;
 }
 

@@ -27,7 +27,7 @@ $generated = $fixture.Replace('/* GLOBALS */', $states + "`n" + $globals).Replac
 $c = Join-Path $build 'calibration.c'
 $exe = Join-Path $build 'calibration.exe'
 [IO.File]::WriteAllText($c, $generated)
-& $cc -std=gnu99 -Wall -Wextra -I (Join-Path $root 'tests/sensor/mocks') -I (Join-Path $firmware 'Core/Inc') $c (Join-Path $firmware 'Core/Src/math_tool.c') -o $exe -lm
+& $cc -std=gnu99 -Wall -Wextra -I (Join-Path $root 'tests/sensor/mocks') -I (Join-Path $firmware 'Core/Inc') $c (Join-Path $firmware 'Core/Src/math_tool.c') (Join-Path $firmware 'Core/Src/drive_faults.c') (Join-Path $firmware 'Core/Src/motor_config.c') -o $exe -lm
 if ($LASTEXITCODE -ne 0) { throw 'Calibration regression compilation failed.' }
 & $exe
 if ($LASTEXITCODE -ne 0) { throw 'Calibration regressions failed.' }

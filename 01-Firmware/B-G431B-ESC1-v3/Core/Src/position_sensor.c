@@ -8,7 +8,8 @@
 #include "position_sensor.h"
 #include "as5600.h"
 #include "math_tool.h"
-#include "control_table.h"
+#include "motor_config.h"
+#include "drive_faults.h"
 
 extern I2C_HandleTypeDef hi2c1;
 
@@ -57,7 +58,7 @@ int positionSensor_init(void)
     if (AS5600_Init(sensor->as5600Handle) != HAL_OK ||
         AS5600_GetAngle(sensor->as5600Handle, &angle_data) != HAL_OK)
     {
-        hardware_fault_set(1U << HW_ERROR_BIT_POSITION_SENSOR_STATUS_ERROR);
+        hardware_fault_set(DRIVE_FAULT_ENCODER_READ);
         return 0;
     }
     sensor->last_angle_data = angle_data;
@@ -76,12 +77,12 @@ float positionSensor_getRadiansEstimation(uint16_t time_us)
     uint16_t const delta_t_us = (uint16_t)(time_us - sensor->lastUpdate);
     if (delta_t_us > 1200U)
     {
-        hardware_fault_set(1U << HW_ERROR_BIT_POSITION_SENSOR_NOT_RESPONDING);
+        hardware_fault_set(DRIVE_FAULT_ENCODER_STALE);
         return 0.0f;
     }
-    // A fresh sample cannot clear an active timeout until main disarms.
-    if (!regs[REG_TORQUE_ENABLE])
-        hardware_fault_clear(1U << HW_ERROR_BIT_POSITION_SENSOR_NOT_RESPONDING);
+    // A fresh sample cannot clear an active timeout until the foreground disarms.
+    if (!control_torque_requested())
+        hardware_fault_clear(DRIVE_FAULT_ENCODER_STALE);
     // Compensate the existing AS5600 slow-filter latency (200 us).
     return sensor->angle_rad + sensor->velocity_rad * (float)(delta_t_us + 200U) / 1000000.0f;
 }
@@ -99,8 +100,8 @@ void positionSensor_update(void){
 
     if(status!=HAL_OK)
     {    // set encoder error
-        hardware_fault_set((uint8_t)(1UL << HW_ERROR_BIT_POSITION_SENSOR_STATUS_ERROR));
-        regs[REG_PROTOCOL_CRC_FAIL]++;
+        hardware_fault_set(DRIVE_FAULT_ENCODER_READ);
+        control_record_sensor_error();
         return; // Preserve the complete last valid sample.
     }
 

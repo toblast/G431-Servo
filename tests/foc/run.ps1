@@ -26,12 +26,12 @@ $generated = $fixture.Replace('/* GLOBALS */', $states + "`n" + $globals).Replac
 $sourcePath = Join-Path $buildDirectory 'transitions.c'
 $exePath = Join-Path $buildDirectory 'transitions.exe'
 [IO.File]::WriteAllText($sourcePath, $generated)
-& $compilerCommand.Source -std=gnu99 -Wall -Wextra -I (Join-Path $repoRoot 'tests/sensor/mocks') -I (Join-Path $firmwareRoot 'Core/Inc') $sourcePath -o $exePath
+& $compilerCommand.Source -std=gnu99 -Wall -Wextra -I (Join-Path $repoRoot 'tests/sensor/mocks') -I (Join-Path $firmwareRoot 'Core/Inc') $sourcePath (Join-Path $firmwareRoot 'Core/Src/drive_faults.c') (Join-Path $firmwareRoot 'Core/Src/motor_config.c') -o $exePath
 if ($LASTEXITCODE -ne 0) { throw 'FOC transition compilation failed.' }
 & $exePath
 if ($LASTEXITCODE -ne 0) { throw 'FOC transition regression failed.' }
 $outputsExe = Join-Path $buildDirectory 'outputs.exe'
-& $compilerCommand.Source -std=gnu99 -Wall -Wextra -I (Join-Path $PSScriptRoot 'mocks') -I (Join-Path $firmwareRoot 'Core/Inc') (Join-Path $PSScriptRoot 'outputs.c') (Join-Path $firmwareRoot 'Core/Src/math_tool.c') -o $outputsExe -lm
+& $compilerCommand.Source -std=gnu99 -Wall -Wextra -I (Join-Path $PSScriptRoot 'mocks') -I (Join-Path $firmwareRoot 'Core/Inc') (Join-Path $PSScriptRoot 'outputs.c') (Join-Path $firmwareRoot 'Core/Src/math_tool.c') (Join-Path $firmwareRoot 'Core/Src/drive_faults.c') (Join-Path $firmwareRoot 'Core/Src/motor_config.c') -o $outputsExe -lm
 if ($LASTEXITCODE -ne 0) { throw 'FOC output compilation failed.' }
 & $outputsExe
 if ($LASTEXITCODE -ne 0) { throw 'FOC output regression failed.' }
@@ -44,7 +44,7 @@ $acquisitionSource = $acquisitionFixture.Replace('/* ACQUISITION_GLOBALS */', $s
 $acquisitionPath = Join-Path $buildDirectory 'acquisition.c'
 $acquisitionExe = Join-Path $buildDirectory 'acquisition.exe'
 [IO.File]::WriteAllText($acquisitionPath, $acquisitionSource)
-& $compilerCommand.Source -std=gnu99 -Wall -Wextra -Wno-unused-variable -I (Join-Path $PSScriptRoot 'mocks') -I (Join-Path $firmwareRoot 'Core/Inc') $acquisitionPath -o $acquisitionExe -lm
+& $compilerCommand.Source -std=gnu99 -Wall -Wextra -Wno-unused-variable -I (Join-Path $PSScriptRoot 'mocks') -I (Join-Path $firmwareRoot 'Core/Inc') $acquisitionPath (Join-Path $firmwareRoot 'Core/Src/drive_faults.c') (Join-Path $firmwareRoot 'Core/Src/motor_config.c') -o $acquisitionExe -lm
 if ($LASTEXITCODE -ne 0) { throw 'ADC acquisition compilation failed.' }
 & $acquisitionExe
 if ($LASTEXITCODE -ne 0) { throw 'ADC acquisition regression failed.' }

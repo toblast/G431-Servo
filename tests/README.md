@@ -21,9 +21,9 @@ same `-Compiler` argument. Generated sources and executables are ignored.
 | protocol | Disarmed configuration, protected runtime registers, malformed packets, maintenance interlock and write failures |
 | serial | Full TX queue, FIFO wrap and DMA buffer ownership, DMA start/runtime errors, RX reload boundary and bounded formatting |
 | telemetry | Directly linked application/register adapter, counter sequencing through public passes, signed/byte saturation, NaN/infinity, negative values and zero uptime |
-| configuration | Conservative defaults, invalid settings, maintenance interlock and persistence error propagation |
+| configuration | Conservative defaults, invalid settings, signed motor/protection views, coherent snapshots/alignment writes, permission/counter semantics, all fault bits, IRQ preservation and persistence failure propagation at `-O0`/`-O2` |
 | fatal | Six production fatal handlers disable MOE before halting |
-| cordic | Bounded result polling, invalid angles, Q31 boundary and calculation failure in every FOC state |
+| cordic | Bounded polling, invalid angles, Q31 boundary, failure in every FOC state and successful typed FOC gain/angle scaling with live configuration changes |
 
 The tests include production C files/headers or extract complete functions from
 the saved sources. They mock peripherals; they do not reproduce the control
