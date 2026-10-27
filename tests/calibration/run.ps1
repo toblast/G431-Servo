@@ -8,7 +8,7 @@ $build = Join-Path $root 'build/tests/calibration'
 New-Item -ItemType Directory -Force -Path $build | Out-Null
 $source = Get-Content (Join-Path $firmware 'Core/Src/foc.c') -Raw
 $functions = ''
-foreach ($name in @('API_FOC_Is_Calibrating', 'API_FOC_Torque_Disable', 'API_FOC_Check_Watchdog', 'FOC_Calibration_Idle', 'FOC_Calibration_Wait', 'FOC_Calibration_Enter_Flux', 'API_FOC_Calibrate')) {
+foreach ($name in @('API_FOC_Is_Calibrating', 'API_FOC_Torque_Disable', 'API_FOC_Check_Watchdog', 'API_FOC_Calibration_Idle', 'API_FOC_Calibration_Begin', 'API_FOC_Calibration_SetFlux', 'API_FOC_Calibration_Cancelled', 'API_FOC_Calibration_End')) {
     $match = [regex]::Match($source, "(?m)^(?:static )?(?:void|bool|int) $name\(")
     if (!$match.Success) { throw "Missing calibration function: $name" }
     $start = $match.Index
@@ -25,9 +25,11 @@ $globals = [regex]::Matches($source, '(?m)^static (?:volatile )?(?:uint32_t|uint
 $fixture = Get-Content (Join-Path $PSScriptRoot 'calibration.c') -Raw
 $generated = $fixture.Replace('/* GLOBALS */', $states + "`n" + $globals).Replace('/* FUNCTIONS */', $functions)
 $c = Join-Path $build 'calibration.c'
-$exe = Join-Path $build 'calibration.exe'
 [IO.File]::WriteAllText($c, $generated)
-& $cc -std=gnu99 -Wall -Wextra -I (Join-Path $root 'tests/sensor/mocks') -I (Join-Path $firmware 'Core/Inc') $c (Join-Path $firmware 'Core/Src/math_tool.c') (Join-Path $firmware 'Core/Src/drive_faults.c') (Join-Path $firmware 'Core/Src/motor_config.c') -o $exe -lm
-if ($LASTEXITCODE -ne 0) { throw 'Calibration regression compilation failed.' }
-& $exe
-if ($LASTEXITCODE -ne 0) { throw 'Calibration regressions failed.' }
+foreach ($optimization in @('O0', 'O2')) {
+    $exe = Join-Path $build "calibration-$optimization.exe"
+    & $cc -std=gnu99 "-$optimization" -Wall -Wextra -Werror -I (Join-Path $root 'tests/sensor/mocks') -I (Join-Path $firmware 'Core/Inc') $c (Join-Path $firmware 'Core/Src/calibration.c') (Join-Path $firmware 'Core/Src/math_tool.c') (Join-Path $firmware 'Core/Src/drive_faults.c') (Join-Path $firmware 'Core/Src/motor_config.c') -o $exe -lm
+    if ($LASTEXITCODE -ne 0) { throw "Calibration regression compilation failed ($optimization)." }
+    & $exe
+    if ($LASTEXITCODE -ne 0) { throw "Calibration regressions failed ($optimization)." }
+}

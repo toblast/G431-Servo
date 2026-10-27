@@ -1,5 +1,6 @@
 #include "app.h"
 #include "configuration.h"
+#include "calibration.h"
 #include "main.h"
 #include "position_sensor.h"
 #include "servo_controller.h"
@@ -26,6 +27,7 @@ void App_Init(TIM_HandleTypeDef *timer, HAL_Serial_Handler *serial)
     app.timer = timer;
     app.serial = serial;
     ServoController_Init();
+    Calibration_Init();
     // A button held at power-up must be released before it can request motion.
     app.calibration_button_was_down = true;
     uint16_t const now = __HAL_TIM_GET_COUNTER(timer);
@@ -38,8 +40,16 @@ static void update_servo(void)
     positionSensor_update();
     DriveCommandSnapshot const command = Drive_Get_Command();
     DriveConfig const config = control_read_config();
-    ServoSetpoints const setpoints = ServoController_Update(&command, &config,
-        positionSensor_getDegreesMultiturn(), positionSensor_getVelocityDps());
+    ServoSetpoints setpoints = {
+        .position_deg = 0.0f, .velocity_dps = 0.0f,
+        .torque_mA = 0.0f, .flux_mA = 0.0f
+    };
+    // Calibration owns excitation until cleanup finishes. In particular, do not
+    // let an old outer-controller disable transition cancel a newly started job.
+    if (!API_FOC_Is_Calibrating()) {
+        setpoints = ServoController_Update(&command, &config,
+            positionSensor_getDegreesMultiturn(), positionSensor_getVelocityDps());
+    }
 
     // Publish the complete measurement snapshot with ADC interrupts masked.
     uint32_t const primask = __get_PRIMASK();
@@ -84,10 +94,8 @@ static void service(void)
     bool const button_down = HAL_GPIO_ReadPin(BUTTON_GPIO_Port, BUTTON_Pin) == GPIO_PIN_RESET;
     bool const calibration_requested = button_down && !app.calibration_button_was_down && Drive_Is_Disarmed();
     app.calibration_button_was_down = button_down;
-    if (calibration_requested) {
-        int const result = Drive_Run_Calibration();
-        HAL_Serial_Print(app.serial, "Calibration result: %d (0=success, 1=no motion, 2=pole pairs, 3=cancel/fault, 4=storage)\n", result);
-    }
+    if (calibration_requested && !Drive_Start_Calibration())
+        HAL_Serial_Print(app.serial, "Calibration result: %d (0=success, 1=no motion, 2=pole pairs, 3=cancel/fault, 4=storage)\n", CALIBRATION_CANCELLED);
 
     // Bound work to the bytes present now so traffic cannot starve watchdogs.
     uint32_t remaining = (uint32_t)HAL_Serial_Available(app.serial);
@@ -101,18 +109,24 @@ void App_Process(void)
 {
     Drive_Service();
     uint16_t const now = __HAL_TIM_GET_COUNTER(app.timer);
+    bool acquisition_serviced = false;
     uint16_t const servo_delta_us = now - app.servo_last_time_us;
     if (servo_delta_us >= SERVO_PERIOD_US) {
         app.servo_last_time_us += SERVO_PERIOD_US;
         ++app.servo_counter;
         update_servo();
+        acquisition_serviced = true;
     }
 
-    // Use the same time sample even if acquisition or calibration takes time.
+    // Use the same time sample even if acquisition takes time.
     uint16_t const service_delta_us = now - app.service_last_time_us;
     if (service_delta_us >= SERVICE_PERIOD_US) {
         app.service_last_time_us += SERVICE_PERIOD_US;
         service();
     }
+    Calibration_Update(acquisition_serviced);
+    CalibrationResult result;
+    if (Calibration_TakeResult(&result))
+        HAL_Serial_Print(app.serial, "Calibration result: %d (0=success, 1=no motion, 2=pole pairs, 3=cancel/fault, 4=storage)\n", result);
     ++app.loop_counter;
 }

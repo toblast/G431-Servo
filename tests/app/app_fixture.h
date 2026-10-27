@@ -17,10 +17,13 @@ typedef struct {
     float servo_position, servo_velocity;
     bool disarmed, button_down, watchdog_disarms;
     bool serial_refill, serial_shrink;
+    bool calibration_active, calibration_pending, calibration_hold;
+    bool calibration_cancelled, calibration_start_rejected, serial_disarms;
     int serial_pending, calibration_result;
-    uint16_t sensor_delay_us, calibration_delay_us;
+    uint16_t sensor_delay_us;
     unsigned errors, controller_inits, clock_reads, watchdogs, sensors, servos;
     unsigned publications, services, disarms, calibrations, prints;
+    unsigned calibration_updates, calibration_samples;
     unsigned serial_reads, serial_checks, packets;
     GPIO_PinState led;
     char trace[256], calibration_text[160];

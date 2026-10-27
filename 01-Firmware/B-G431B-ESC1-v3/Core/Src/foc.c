@@ -72,8 +72,6 @@ static volatile uint16_t foc_timestamp_us = 0;
 static volatile uint32_t foc_timestamp_ms = 0;
 static volatile bool calibration_active = false;
 static volatile bool calibration_cancelled = false;
-static uint16_t calibration_last_sample_us;
-static uint32_t calibration_last_service_ms;
 
 // FOC setpoints variables
 static volatile float setpoint_torque_current_mA = 0.0f;
@@ -286,7 +284,7 @@ void LL_FOC_Update_Voltage()
 }
 
 
-static void FOC_Calibration_Idle(void)
+void API_FOC_Calibration_Idle(void)
 {
     uint32_t const primask = __get_PRIMASK();
     __disable_irq();
@@ -297,39 +295,28 @@ static void FOC_Calibration_Idle(void)
     __set_PRIMASK(primask);
 }
 
-static bool FOC_Calibration_Wait(uint32_t duration_ms)
+bool API_FOC_Calibration_Begin(void)
 {
-    uint32_t const start = HAL_GetTick();
-    uint32_t now;
-    do
-    {
-        uint16_t const sample_time = __HAL_TIM_GET_COUNTER(&htim6);
-        if ((uint16_t)(sample_time - calibration_last_sample_us) >= 250U)
-        {
-            positionSensor_update();
-            calibration_last_sample_us = __HAL_TIM_GET_COUNTER(&htim6);
-        }
-        now = HAL_GetTick();
-        if ((uint32_t)(now - calibration_last_service_ms) >= 10U)
-        {
-            API_FOC_Service_Update();
-            calibration_last_service_ms = now;
-        }
-        if (!API_FOC_Check_Watchdog() || calibration_cancelled ||
-            hardware_fault_status() != 0 || !positionSensor_isReady())
-            return false;
-    } while ((uint32_t)(now - start) < duration_ms);
-    return true;
+    uint32_t const primask = __get_PRIMASK();
+    __disable_irq();
+    bool const allowed = !calibration_active && !control_torque_requested() &&
+        hardware_fault_status() == 0 && positionSensor_isReady() && Config_IsValid();
+    if (allowed) {
+        calibration_active = true;
+        calibration_cancelled = false;
+        API_FOC_Calibration_Idle();
+    }
+    __set_PRIMASK(primask);
+    return allowed;
 }
 
-static bool FOC_Calibration_Enter_Flux(float angle_rad, float voltage_V)
+bool API_FOC_Calibration_SetFlux(float angle_rad, float voltage_V)
 {
     uint32_t const primask = __get_PRIMASK();
     __disable_irq();
     bool const allowed = calibration_active && !calibration_cancelled &&
-                         hardware_fault_status() == 0 && positionSensor_isReady();
-    if (allowed)
-    {
+        hardware_fault_status() == 0 && positionSensor_isReady();
+    if (allowed) {
         setpoint_electrical_angle_rad = angle_rad;
         setpoint_flux_voltage_V = voltage_V;
         foc_state = FOC_STATE_FLUX_CONTROL;
@@ -338,101 +325,16 @@ static bool FOC_Calibration_Enter_Flux(float angle_rad, float voltage_V)
     return allowed;
 }
 
-// Bench calibration only. Return 0 on success, 1 for no motion, 2 for pole-pair
-// mismatch, 3 for invalid state/cancellation/fault, or 4 for persistence failure.
-int API_FOC_Calibrate()
+bool API_FOC_Calibration_Cancelled(void) { return calibration_cancelled; }
+
+void API_FOC_Calibration_End(void)
 {
     uint32_t const primask = __get_PRIMASK();
     __disable_irq();
-    if (calibration_active || control_torque_requested() ||
-        hardware_fault_status() != 0 || !positionSensor_isReady() || !Config_IsValid())
-    {
-        __set_PRIMASK(primask);
-        return 3;
-    }
-    calibration_active = true;
-    calibration_cancelled = false;
-    __set_PRIMASK(primask);
-
-    MotorAlignment const old_alignment = control_read_motor_alignment();
-    MotorAlignment alignment = { .phase_offset_deg = 0, .invert_phase_motor = 0 };
-    int result = 3;
-    calibration_last_sample_us = __HAL_TIM_GET_COUNTER(&htim6);
-    calibration_last_service_ms = HAL_GetTick();
-    FOC_Calibration_Idle();
-    if (!FOC_Calibration_Wait(200)) goto done;
-
-    control_write_motor_alignment(&alignment);
-    if (!FOC_Calibration_Enter_Flux(M_3PI_2, 3.0f)) goto done;
-    if (!FOC_Calibration_Wait(100)) goto done;
-
-    for (int i = 0; i <= 500; ++i)
-    {
-        setpoint_electrical_angle_rad = M_3PI_2 + M_2PI * i / 500.0f;
-        if (!FOC_Calibration_Wait(2)) goto done;
-    }
-    if (!FOC_Calibration_Wait(200)) goto done;
-    positionSensor_update();
-    if (hardware_fault_status() != 0 || calibration_cancelled) goto done;
-    float const mid_angle = positionSensor_getRadiansMultiturn();
-
-    for (int i = 500; i >= 0; --i)
-    {
-        setpoint_electrical_angle_rad = M_3PI_2 + M_2PI * i / 500.0f;
-        if (!FOC_Calibration_Wait(2)) goto done;
-    }
-    if (!FOC_Calibration_Wait(200)) goto done;
-    positionSensor_update();
-    if (hardware_fault_status() != 0 || calibration_cancelled) goto done;
-    float const end_angle = positionSensor_getRadiansMultiturn();
-    FOC_Calibration_Idle();
-
-    float const delta_angle = mid_angle - end_angle;
-    if (!isfinite(delta_angle) || fabsf(delta_angle) < 0.1f)
-    {
-        result = 1;
-        goto done;
-    }
-    alignment.invert_phase_motor = delta_angle > 0.0f ? 0 : 1;
-    control_write_motor_alignment(&alignment);
-    MotorControlConfig const config = control_read_motor_config();
-    float const pole_pairs = config.motor_pole_pairs;
-    if (fabsf(fabsf(delta_angle) * pole_pairs - M_2PI) > 0.5f)
-    {
-        result = 2;
-        goto done;
-    }
-
-    if (!FOC_Calibration_Enter_Flux(0.0f, 3.0f)) goto done;
-    if (!FOC_Calibration_Wait(1000)) goto done;
-    positionSensor_update();
-    if (hardware_fault_status() != 0 || calibration_cancelled) goto done;
-    float const reverse = alignment.invert_phase_motor == 0 ? 1.0f : -1.0f;
-    float const offset = normalize_angle(-positionSensor_getRadiansMultiturn() * pole_pairs * reverse);
-    alignment.phase_offset_deg = (int16_t)(int)RADIANS_TO_DEGREES(offset);
-    control_write_motor_alignment(&alignment);
-    FOC_Calibration_Idle();
-    // Keep calibration_active true through persistence so CAN ARM stays rejected.
-    if (hardware_fault_status() != 0 || calibration_cancelled) goto done;
-    if (!Config_Save())
-    {
-        result = 4;
-        goto done;
-    }
-    result = 0;
-
-done:
-    FOC_Calibration_Idle();
-    if (result != 0)
-    {
-        control_write_motor_alignment(&old_alignment);
-    }
-    __disable_irq();
+    API_FOC_Calibration_Idle();
     calibration_active = false;
     __set_PRIMASK(primask);
-    return result;
 }
-
 
 void API_FOC_Service_Update()
 {

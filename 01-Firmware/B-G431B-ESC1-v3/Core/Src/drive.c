@@ -1,5 +1,6 @@
 #include "drive.h"
 #include "configuration.h"
+#include "calibration.h"
 #include "control_table.h"
 #include "foc.h"
 #include "position_sensor.h"
@@ -164,12 +165,12 @@ void Drive_End_Maintenance(void)
     __set_PRIMASK(primask);
 }
 
-int Drive_Run_Calibration(void)
+bool Drive_Start_Calibration(void)
 {
-    if (!Drive_Is_Disarmed() || Drive_Is_Maintenance()) return 3;
+    if (!Drive_Is_Disarmed() || Drive_Is_Maintenance()) return false;
     // FOC repeats its atomic entry check: a CAN ARM arriving here must win or
     // be rejected by FOC's calibration-active flag, never race into motion.
-    return API_FOC_Calibrate();
+    return Calibration_Start();
 }
 
 void Drive_Publish_Measurements(DriveMeasurements const *measurements)

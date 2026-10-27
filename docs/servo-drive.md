@@ -25,7 +25,7 @@ Paths below are relative to the selected firmware directory.
 | Watchdogs | `Drive_Service` in `drive.c`, shared `API_FOC_Check_Watchdog` in `foc.c` (also used during calibration), and sample-age check in `positionSensor_getRadiansEstimation` |
 | Position/velocity loop | `App_Process` schedule/acquisition in `app.c` → `ServoController_Update` in `servo_controller.c` → existing PID helper in `pic.c` → `Drive_Publish_Currents` → FOC |
 | Configuration/fault flags | `config_validation.c` validates typed settings; `configuration.c` applies/persists under drive maintenance; `config_storage.c` transfers the legacy image; register/motor/fault adapters provide the live views |
-| Calibration | Button edge/service in `app.c` → `Drive_Run_Calibration` → `API_FOC_Calibrate` and serviced waits in `foc.c` |
+| Calibration | Button edge/service → `Drive_Start_Calibration`; each `App_Process` advances `Calibration_Update` in `calibration.c` through guarded FOC excitation primitives |
 | Foreground services | `App_Init`/`App_Process` in `app.c`; `main.c` initializes dependencies and repeatedly calls the application |
 | Fatal stop | `Core/Inc/emergency_stop.h`, called by `Error_Handler` and CPU fault handlers in `Core/Src/stm32g4xx_it.c` |
 
@@ -69,7 +69,10 @@ an older foreground calculation from being applied after DISARM/rearm.
 
 Manual calibration is a distinct bench operation requested by a new button
 press while fault-free and disarmed. It deliberately energizes the motor with
-an open-loop alignment voltage. Encoder and analog service continue; CAN ARM
+an open-loop alignment voltage. Motion advances one state/step per foreground
+pass, with no busy waits or duplicate acquisition scheduler. Encoder acquisition,
+measurement publication, analog service and bounded serial processing continue;
+the outer servo calculation is skipped while calibration owns excitation. CAN ARM
 and servo commands are rejected during calibration, while DISARM cancels it.
 Calibration does not require periodic CAN traffic. It ends in coast, never in
 the armed servo state. Results printed over serial: 0 success, 1 no motion,
@@ -78,6 +81,17 @@ calibration restores the previous RAM alignment settings.
 An armed button press is ignored and must be released before a later disarmed
 press can request calibration. FOC age is checked throughout calibration;
 loss of callbacks for more than 10 ms cancels it, coasts, and latches bit 4.
+
+The 3 V trajectory retains 200 ms initial coast, 100 ms initial settling,
+501 forward and 501 reverse positions at 2 ms each, 200 ms endpoint holds,
+and 1000 ms final alignment. Late foreground passes extend these dwells rather
+than skipping targets. Endpoint capture waits for a subsequent normal acquisition
+after settling. Completion is printed once by the foreground application.
+Configuration writes/reset/reboot received during motion return their existing
+busy error. The final flash save remains synchronous with IRQs enabled while
+coasting and ARM remains blocked through save/cleanup. Cancellation during a save
+restores RAM alignment and reports cancellation, but cannot undo flash writes
+already performed; storage failure retains result 4 and the internal fault.
 
 ## CAN protocol
 
@@ -253,6 +267,9 @@ The following checks are **pending**, with no hardware result claimed:
    preload latching and coast-to-enable transition at both build optimizations.
 4. At a current-limited bench supply, run manual calibration with a free rotor.
    Test DISARM cancellation, lost encoder and persistence failure reporting.
+   Confirm continued acquisition, protection/serial service and measured
+   telemetry, step/settle timing under traffic, immediate coast on cancellation,
+   ARM/write/reset exclusion through completion and the final save while coasting.
 5. Test ARM/DISARM, duplicate ARM, all DLCs, wrong IDs, remote/FD frames,
    malformed/continuous traffic, missing CAN traffic and bus-off behavior.
 6. Disconnect encoder/magnet while running. Confirm coast and the required

@@ -335,12 +335,12 @@ static void test_typed_views_and_supervisor_policy(void)
     CHECK(Drive_Request_Arm() && Drive_Get_Status().state == DRIVE_ARMED, "ARM succeeds after maintenance ends and fault clears");
     CHECK(!Drive_Begin_Maintenance(false) && can_armed, "ordinary configuration cannot disarm an active servo");
     calibration_calls = 0;
-    CHECK(Drive_Run_Calibration() == 3 && calibration_calls == 0 && can_armed,
+    CHECK(!Drive_Start_Calibration() && calibration_calls == 0 && can_armed,
           "armed calibration request is rejected without touching FOC");
     CHECK(Drive_Begin_Maintenance(true) && !can_armed, "reset maintenance disarms before persistence");
-    CHECK(Drive_Run_Calibration() == 3 && calibration_calls == 0, "maintenance rejects calibration");
+    CHECK(!Drive_Start_Calibration() && calibration_calls == 0, "maintenance rejects calibration");
     Drive_End_Maintenance();
-    CHECK(Drive_Run_Calibration() == 0 && calibration_calls == 1, "disarmed calibration forwards through the supervisor");
+    CHECK(Drive_Start_Calibration() && calibration_calls == 1, "disarmed calibration forwards through the supervisor");
     mock_calibrating = true;
     CHECK(Drive_Get_Status().state == DRIVE_CALIBRATING && !Drive_Is_Disarmed(), "FOC job state is visible through the supervisor");
     CHECK(!Drive_Begin_Maintenance(false), "calibration excludes configuration maintenance");

@@ -20,6 +20,7 @@ static inline void __set_PRIMASK(uint32_t value) {
     if (value == 0 && test_irq_restored) test_irq_restored();
 }
 static inline void __DMB(void) { }
+uint32_t HAL_GetTick(void);
 
 HAL_StatusTypeDef HAL_I2C_Mem_Read(I2C_HandleTypeDef *handle, uint16_t address,
     uint16_t reg, uint16_t reg_size, uint8_t *data, uint16_t count, uint32_t timeout);

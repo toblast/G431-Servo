@@ -25,8 +25,8 @@ void Drive_End_Maintenance(void);
 void Drive_Publish_Measurements(DriveMeasurements const *measurements);
 DriveStatus Drive_Get_Status(void);
 
-// Foreground-only, blocking: entry policy here, trajectory/cancellation in FOC.
-// FOC retains its atomic entry guard and private calibration-active flag.
-int Drive_Run_Calibration(void);
+// Foreground-only request. Completion is reported asynchronously by Calibration.
+// FOC retains its atomic entry guard and private active/cancelled flags.
+bool Drive_Start_Calibration(void);
 
 #endif

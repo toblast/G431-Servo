@@ -19,9 +19,16 @@ extern "C" {
 
 void API_FOC_Init();
 
-int API_FOC_Calibrate();
 bool API_FOC_Is_Calibrating(void);
 bool API_FOC_Check_Watchdog(void);
+// Foreground calibration primitives. Begin/SetFlux guard against ARM, faults
+// and cancellation atomically. Idle coasts; End releases the active guard only
+// after the job has completed rollback/result publication. No wait loops here.
+bool API_FOC_Calibration_Begin(void);
+bool API_FOC_Calibration_SetFlux(float angle_rad, float voltage_V);
+bool API_FOC_Calibration_Cancelled(void);
+void API_FOC_Calibration_Idle(void);
+void API_FOC_Calibration_End(void);
 
 void API_FOC_Torque_Enable();
 void API_FOC_Torque_Disable();

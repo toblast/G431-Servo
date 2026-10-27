@@ -38,6 +38,7 @@ BUILD_DIR = build
 C_SOURCES =  \
 Core/Src/app.c \
 Core/Src/as5600.c \
+Core/Src/calibration.c \
 Core/Src/can_servo.c \
 Core/Src/config_validation.c \
 Core/Src/config_storage.c \

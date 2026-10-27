@@ -2,6 +2,7 @@
 #include "main.h"
 #include "drive.h"
 #include "foc.h"
+#include "calibration.h"
 #include "position_sensor.h"
 #include "protocol.h"
 #include <stdarg.h>
@@ -61,14 +62,38 @@ void Drive_Disarm(void)
 {
     ++app_test.disarms; record('D');
     app_test.command.enabled = false; app_test.disarmed = true;
+    if (app_test.calibration_active) app_test.calibration_cancelled = true;
 }
-bool Drive_Is_Disarmed(void) { return app_test.disarmed; }
-int Drive_Run_Calibration(void)
+bool API_FOC_Is_Calibrating(void) { return app_test.calibration_active; }
+bool Drive_Is_Disarmed(void) { return app_test.disarmed && !app_test.calibration_active; }
+void Calibration_Init(void)
 {
-    if (!app_test.disarmed) ++app_test.errors;
+    app_test.calibration_active = app_test.calibration_pending = app_test.calibration_cancelled = false;
+}
+bool Drive_Start_Calibration(void)
+{
+    if (!Drive_Is_Disarmed()) ++app_test.errors;
     ++app_test.calibrations; record('K');
-    app_test_timer.counter += app_test.calibration_delay_us;
-    return app_test.calibration_result;
+    if (app_test.calibration_start_rejected) return false;
+    app_test.calibration_active = true;
+    return true;
+}
+void Calibration_Update(bool acquisition_serviced)
+{
+    if (!app_test.calibration_active) return;
+    ++app_test.calibration_updates; record('T');
+    if (acquisition_serviced) ++app_test.calibration_samples;
+    if (app_test.calibration_cancelled) app_test.calibration_result = CALIBRATION_CANCELLED;
+    else if (app_test.calibration_hold) return;
+    app_test.calibration_active = false;
+    app_test.calibration_pending = true;
+}
+bool Calibration_TakeResult(CalibrationResult *result)
+{
+    if (!app_test.calibration_pending) return false;
+    *result = (CalibrationResult)app_test.calibration_result;
+    app_test.calibration_pending = false;
+    return true;
 }
 void Drive_Publish_Measurements(DriveMeasurements const *measurements)
 {
@@ -128,6 +153,7 @@ void packet_handler(char c)
 {
     if (c != (char)('a' + app_test.packets % 26)) ++app_test.errors;
     ++app_test.packets; record('R');
+    if (app_test.serial_disarms) Drive_Disarm();
     if (app_test.serial_refill) ++app_test.serial_pending;
     if (app_test.serial_shrink) app_test.serial_pending = 0;
 }

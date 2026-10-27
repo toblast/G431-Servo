@@ -24,14 +24,12 @@ Completed:
   FOC/PWM and encoder consumers, preserving the existing register image.
 - [x] Separate configuration validation, guarded application and fixed-image
   persistence, retaining the serial map and flash format.
+- [x] Advance calibration motion through explicit foreground states, preserving
+  the trajectory, fault/cancellation checks and guarded completion/storage.
 
 Next software work, in order:
 
-1. [ ] **Make calibration nonblocking.** Advance explicit calibration states
-   through the normal foreground scheduler, preserving the trajectory,
-   cancellation, fault checks and completion/storage behavior. This is a
-   behavior-sensitive change and needs corresponding abnormal-condition tests.
-2. [ ] **Finish convention and documentation consistency.** Apply clear names,
+1. [ ] **Finish convention and documentation consistency.** Apply clear names,
    explicit units, caller/ownership contracts and consistent error returns as
    modules are touched, then review the remaining inconsistencies. Preserve
    working FOC code when the proposed change is only cosmetic.
@@ -245,9 +243,41 @@ service, register, motor/fault and storage modules. They cover empty/existing
 images, invalid stored settings, read/write failures, runtime exclusion, staged
 repairs, guard lifetime, reset failure and preserved reserved bytes. Serial tests
 also link the real configuration path, retaining ARM-race, range and reply/error
-coverage. Both ARM builds pass. The next pending point is nonblocking calibration;
-conventions and the earlier bench/control/reliability decisions remain pending.
+coverage. Both ARM builds pass. Calibration scheduling is implemented in the
+seventh refactor below; conventions and the earlier bench/control/reliability
+decisions remain pending.
 Keep the existing local workflow; CI is optional and deferred.
+
+## Seventh refactor: foreground calibration state machine
+
+`calibration.c` owns one foreground job with explicit coast, settling, forward,
+reverse, endpoint capture, alignment and save states. `Drive_Start_Calibration`
+checks entry permission; FOC retains atomic entry/excitation guards and immediate
+coast/cancellation. `App_Process` advances at most one transition after its normal
+jobs and reports completion once. The outer servo calculation is bypassed while
+calibration owns excitation; normal sensor acquisition, measurement publication,
+protection services and bounded serial processing continue.
+
+The 3 V trajectory, 501 positions in each direction, 2 ms step dwell, settling
+intervals, direction/pole checks, offset calculation and result codes are retained.
+Each endpoint capture waits for a subsequent normal acquisition after settling.
+Delayed passes extend a dwell instead of publishing a burst of targets. DISARM,
+encoder faults and FOC loss cancel; failures restore the original RAM alignment.
+ARM/configuration maintenance stay excluded through cleanup and persistence.
+Serial requests now execute during motion, so writes/reset/reboot return their
+existing busy error instead of waiting until calibration has finished.
+
+The final whole-image flash save remains synchronous while coasting; I2C reads
+also retain their synchronous implementation. No asynchronous flash driver or
+power-loss transaction is introduced. Cancellation during an already executing
+save restores RAM and reports cancellation, but cannot undo a flash write.
+
+All thirteen suites and ARM builds at `-Og`/`-O2` pass. Tests link the calibration
+job directly at `-O0`/`-O2` and check the full trajectory, fresh endpoint capture,
+no catch-up bursts, rollover, invalid entry, cancellation, sensor/FOC failures,
+storage failure and completion/IRQ semantics. Application tests check continued
+services/serial/measurements, excitation ownership, button interlocks and one-shot
+reporting. Hardware timing and motor behavior still require bench validation.
 
 ## Reference documents
 

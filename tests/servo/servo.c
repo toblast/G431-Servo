@@ -4,6 +4,7 @@
 #include "configuration.h"
 #include "binary_tool.h"
 #include "foc.h"
+#include "calibration.h"
 #include "position_sensor.h"
 #include <math.h>
 #include <stdio.h>
@@ -34,7 +35,7 @@ void API_FOC_Set_Torque_Flux_Currents_mA(float torque, float flux)
 }
 bool API_FOC_Is_Calibrating(void) { return false; }
 bool API_FOC_Check_Watchdog(void) { return true; }
-int API_FOC_Calibrate(void) { return 0; }
+bool Calibration_Start(void) { return true; }
 int positionSensor_isReady(void) { return 1; }
 float positionSensor_getDegreesMultiturn(void) { return position_deg; }
 uint32_t HAL_GetTick(void) { return tick; }

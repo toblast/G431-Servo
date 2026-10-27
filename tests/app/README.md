@@ -15,8 +15,10 @@ there is no scheduler source extraction or private-state access.
 Coverage includes 250 us/10000 us deadline boundaries, fixed-phase catch-up with
 one update per pass, 16-bit rollover, a single time sample despite acquisition
 delay, watchdog/servo/service ordering, configuration fault/LED behavior, startup
-and armed-held button interlocks, blocking calibration/reporting, serial refill
-and shrink, and caller IRQ-mask preservation. Reinitialization must preserve a
+and armed-held button interlocks, calibration start/rejection, continued services,
+serial and measured telemetry during motion, skipped outer control, asynchronous
+one-shot reporting, serial cancellation, serial refill/shrink, and caller IRQ-mask
+preservation. Reinitialization must preserve a
 command already accepted by the drive layer.
 
 The telemetry suite reuses this hardware fixture to drive real application
@@ -24,4 +26,6 @@ publication and counters through public passes. It retains signed/byte saturatio
 NaN/infinity and zero-uptime checks.
 
 These are software checks. Measured timing, motor behavior and physical faults
-still require bench validation. Calibration remains blocking in this increment.
+still require bench validation. The real calibration job is tested by the
+[calibration suite](../calibration/README.md); its final flash save remains
+synchronous while coasting.

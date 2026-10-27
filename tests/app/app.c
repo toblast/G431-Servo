@@ -101,7 +101,7 @@ static void test_watchdog_configuration_and_led(void)
     CHECK(app_test.led == GPIO_PIN_SET && app_test.errors == 0);
 }
 
-static void test_button_edges_and_blocking_calibration(void)
+static void test_button_edges_and_calibration_job(void)
 {
     AppTest_Reset(0);
     bool const buttons[] = { true, true, false, true, true, false, true };
@@ -126,15 +126,54 @@ static void test_button_edges_and_blocking_calibration(void)
     AppTest_Poll(10000); // Release the startup button interlock.
     AppTest_ClearTrace();
     app_test.button_down = true;
-    app_test.calibration_delay_us = 5000;
+    app_test.calibration_hold = true;
     app_test.calibration_result = 3;
     app_test.serial_pending = 1;
     AppTest_Poll(20000);
-    CHECK(strcmp(app_test.trace, "WCSUMFLBKPR") == 0 && app_test_timer.counter == 25000);
+    CHECK(strcmp(app_test.trace, "WCSUMFLBKRT") == 0 && app_test_timer.counter == 20000);
+    CHECK(app_test.calibration_active && app_test.prints == 0 && app_test.packets == 1);
+    unsigned const servos = app_test.servos;
+    AppTest_ClearTrace();
+    App_Process();
+    CHECK(strcmp(app_test.trace, "WCSMT") == 0 && app_test.calibrations == 1);
+    CHECK(app_test.servos == servos && app_test.publications == app_test.sensors);
+    app_test.button_down = false;
+    AppTest_Poll(30000);
+    app_test.button_down = true;
+    app_test.serial_pending = 2;
+    AppTest_ClearTrace();
+    AppTest_Poll(40000);
+    CHECK(strcmp(app_test.trace, "WCSMFLBRRT") == 0 && app_test.calibrations == 1);
+    CHECK(app_test.servos == servos && app_test.services == 4 && app_test.packets == 3);
+    CHECK(app_test.calibration_updates == 4 && app_test.calibration_samples == 4);
+    app_test.calibration_hold = false;
+    AppTest_ClearTrace();
+    App_Process();
+    CHECK(strcmp(app_test.trace, "WCSMTP") == 0 && app_test.prints == 1);
     CHECK(strstr(app_test.calibration_text, "Calibration result: 3 ") != NULL);
     AppTest_ClearTrace();
     App_Process();
-    CHECK(strcmp(app_test.trace, "WCSUM") == 0 && app_test.calibrations == 1);
+    CHECK(strcmp(app_test.trace, "WCSUM") == 0 && app_test.servos == servos + 1 && app_test.prints == 1);
+    CHECK(app_test.errors == 0);
+
+    AppTest_Reset(0);
+    AppTest_Poll(10000);
+    app_test.button_down = true; app_test.calibration_hold = true;
+    AppTest_Poll(20000);
+    app_test.serial_pending = 1; app_test.serial_disarms = true;
+    AppTest_ClearTrace();
+    AppTest_Poll(30000);
+    CHECK(strcmp(app_test.trace, "WCSMFLBRDTP") == 0);
+    CHECK(!app_test.calibration_active && app_test.prints == 1 && app_test.disarms == 1);
+    CHECK(strstr(app_test.calibration_text, "Calibration result: 3 ") != NULL);
+    CHECK(app_test.errors == 0);
+
+    AppTest_Reset(0);
+    AppTest_Poll(10000);
+    app_test.button_down = true; app_test.calibration_start_rejected = true;
+    AppTest_Poll(20000);
+    CHECK(!app_test.calibration_active && app_test.prints == 1);
+    CHECK(strstr(app_test.calibration_text, "Calibration result: 3 ") != NULL);
     CHECK(app_test.errors == 0);
 }
 
@@ -171,7 +210,7 @@ int main(void)
     test_deadlines_order_and_inputs();
     test_phase_catchup_rollover_and_single_time_sample();
     test_watchdog_configuration_and_led();
-    test_button_edges_and_blocking_calibration();
+    test_button_edges_and_calibration_job();
     test_bounded_serial_and_irq_state();
     printf("Application scheduler: %u assertions passed.\n", assertions);
     return 0;

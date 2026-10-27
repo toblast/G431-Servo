@@ -11,7 +11,8 @@ void App_Init(TIM_HandleTypeDef *timer, HAL_Serial_Handler *serial);
 
 // Run one foreground pass. Not reentrant or callable from an IRQ. Watchdogs run
 // first; one timer sample schedules at most one servo and one service update.
-// Calibration remains blocking; serial work is bounded to its entry byte count.
+// Calibration motion advances after normal jobs; its final save is synchronous
+// while coasting. Serial work is bounded to its entry byte count.
 void App_Process(void);
 
 #endif

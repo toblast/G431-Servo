@@ -8,6 +8,7 @@
 #include "configuration.h"
 #include "binary_tool.h"
 #include "foc.h"
+#include "calibration.h"
 #include "drive.h"
 #include "telemetry.h"
 #include "can_servo.h"
@@ -54,7 +55,7 @@ void API_FOC_Set_Torque_Flux_Currents_mA(float torque, float flux) {
 }
 int positionSensor_isReady(void) { return sensor_ready; }
 bool API_FOC_Is_Calibrating(void) { return mock_calibrating; }
-int API_FOC_Calibrate(void) { ++calibration_calls; return 0; }
+bool Calibration_Start(void) { ++calibration_calls; return true; }
 HAL_StatusTypeDef eeprom_store(uint8_t const *data, uint32_t size) { (void)data; (void)size; return HAL_OK; }
 HAL_StatusTypeDef eeprom_restore(uint8_t *data, uint32_t size) { (void)data; (void)size; return HAL_OK; }
 float positionSensor_getDegreesMultiturn(void) { return mock_position_deg; }
