@@ -1,6 +1,7 @@
 #include "servo_controller.h"
 #include "drive.h"
 #include "control_table.h"
+#include "configuration.h"
 #include "binary_tool.h"
 #include "foc.h"
 #include "position_sensor.h"
@@ -51,13 +52,14 @@ static void store_word(unsigned address, int16_t value)
 static void reset_fixture(bool reversed)
 {
     test_primask = 0;
-    CHECK(factory_reset_eeprom_regs() == HAL_OK);
+    control_reset_config_defaults();
+    CHECK(Config_IsValid());
     reset_ram_regs();
     store_word(REG_MIN_POSITION_DEG_L, -30);
     store_word(REG_MAX_POSITION_DEG_L, 30);
     store_word(REG_MAX_VELOCITY_DPS_L, 100);
     regs[REG_INV_PHASE_MOTOR] = reversed;
-    CHECK(control_configuration_valid());
+    CHECK(Config_IsValid());
     position_deg = velocity_dps = 0;
     tick = 100;
     enables = disables = publications = 0;

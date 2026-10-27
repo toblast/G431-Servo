@@ -1,4 +1,5 @@
 #include "drive.h"
+#include "configuration.h"
 #include "control_table.h"
 #include "foc.h"
 #include "position_sensor.h"
@@ -55,7 +56,7 @@ bool Drive_Request_Arm(void)
     __disable_irq();
     bool accepted = false;
     if (API_FOC_Is_Calibrating()) goto done;
-    if (drive.maintenance || !control_configuration_valid()) {
+    if (drive.maintenance || !Config_IsValid()) {
         hardware_fault_set(DRIVE_FAULT_CONFIGURATION);
         goto done;
     }

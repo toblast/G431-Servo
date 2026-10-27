@@ -22,18 +22,16 @@ Completed:
   periodic services into `app.c`.
 - [x] Add typed configuration, alignment, permission and fault interfaces for
   FOC/PWM and encoder consumers, preserving the existing register image.
+- [x] Separate configuration validation, guarded application and fixed-image
+  persistence, retaining the serial map and flash format.
 
 Next software work, in order:
 
-1. [ ] **Clarify configuration and persistence responsibilities.** Give
-   validation, application and storage clear interfaces while preserving the
-   existing serial addresses and flash format. CRC, transactional storage and
-   migration remain separate later reliability work.
-2. [ ] **Make calibration nonblocking.** Advance explicit calibration states
+1. [ ] **Make calibration nonblocking.** Advance explicit calibration states
    through the normal foreground scheduler, preserving the trajectory,
    cancellation, fault checks and completion/storage behavior. This is a
    behavior-sensitive change and needs corresponding abnormal-condition tests.
-3. [ ] **Finish convention and documentation consistency.** Apply clear names,
+2. [ ] **Finish convention and documentation consistency.** Apply clear names,
    explicit units, caller/ownership contracts and consistent error returns as
    modules are touched, then review the remaining inconsistencies. Preserve
    working FOC code when the proposed change is only cosmetic.
@@ -138,9 +136,8 @@ limits, phase reversal and zero position-integral gain are preserved. No CAN
 field, rate, watchdog threshold, FOC or encoder implementation changed.
 The directly linked servo suite covers numerical behavior and publication races.
 
-Roadmap item 3 remains partial: configuration/persistence responsibilities remain
-to be clarified. CAN handling, application scheduling and typed low-level
-boundaries are implemented in the later increments below.
+The later increments below complete CAN handling, foreground scheduling, typed
+low-level boundaries and separation of configuration/persistence responsibilities.
 
 ## Third refactor: CAN transport and protocol handling
 
@@ -216,10 +213,41 @@ encoder failure, immediate coast and malformed CAN regressions remain. ARM
 builds at `-Og` and `-O2` pass; hardware timing of the added interface calls and
 snapshot critical section still requires bench measurement.
 
-The next pending point is configuration/persistence responsibilities. Nonblocking
-calibration, wider convention consistency and the earlier control/hardware
-decisions remain pending. Keep the existing local build/test workflow; CI stays
-optional and deferred.
+Configuration/persistence responsibilities are separated in the sixth refactor
+below.
+
+## Sixth refactor: configuration validation, application and persistence
+
+`config_validation.c` owns pure `Config_Validate` and current-value validation.
+`configuration.c` owns startup loading, guarded register writes, factory reset
+and save/fault handling. `config_storage.c` transfers a fixed 128-byte
+`ConfigImage` through the unchanged EEPROM backend. `control_table.c` now owns
+only register/default encoding, coherent image capture/application and runtime
+mirrors; it performs no flash I/O. Serial framing stays in `protocol.c`, which
+delegates configuration operations and retains its LED/reboot handling.
+
+Range and maintenance checks precede write application. Partial disarmed repairs
+remain accepted and persisted even when an intermediate image is invalid; safety
+validation still gates ARM and periodic operation. Factory reset disarms and
+holds maintenance through the reply/reset delay on success, releasing it on
+failure. Calibration saves while its existing exclusion guard remains active.
+Flash I/O occurs with IRQs enabled after a bounded atomic image snapshot.
+
+The image remains exactly bytes 0x00..0x7f, with the same fields, defaults,
+reserved-byte behavior, flash page and doubleword writes. Runtime values are not
+persisted or changed by loading configuration. No CRC, transaction metadata,
+migration, RAM rollback on failed serial writes or new configuration cache is
+introduced. Startup now checks a failed storage read before applying the image,
+latching the internal fault and halting before ADC/CAN startup.
+
+All thirteen suites pass. Configuration tests directly link the real validation,
+service, register, motor/fault and storage modules. They cover empty/existing
+images, invalid stored settings, read/write failures, runtime exclusion, staged
+repairs, guard lifetime, reset failure and preserved reserved bytes. Serial tests
+also link the real configuration path, retaining ARM-race, range and reply/error
+coverage. Both ARM builds pass. The next pending point is nonblocking calibration;
+conventions and the earlier bench/control/reliability decisions remain pending.
+Keep the existing local workflow; CI is optional and deferred.
 
 ## Reference documents
 

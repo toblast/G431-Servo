@@ -4,7 +4,8 @@ Branch `professional`, based on `simplified` at `8629fd6`. The first increment
 introduced the typed model and drive supervisor; the second extracted the outer
 servo controller; the third extracted CAN handling; the fourth extracts the
 foreground application scheduler; the fifth adds typed low-level motor/fault
-boundaries. All preserve the selected firmware's motor behavior.
+boundaries; the sixth separates configuration validation, application and storage.
+The control calculations and normal command behavior are preserved.
 
 ## Current boundaries
 
@@ -12,7 +13,10 @@ boundaries. All preserve the selected firmware's motor behavior.
 | --- | --- |
 | `drive_types.h` | HAL-independent `DriveConfig`, `ServoCommand`, command snapshot, measurements, state and status types; explicit units and existing gain scales |
 | `drive.c` / `drive.h` | Private owner of arming, accepted command, generation, timestamp, maintenance permission and measured-status snapshot; ARM/DISARM, watchdog service and guarded current publication |
-| `control_table.c` | Legacy serial/flash register adapter, pure parameter validation, typed configuration reads, command/status mirrors |
+| `control_table.c` | Legacy register/default encoding, typed reads, coherent configuration image capture/application and runtime mirrors; no flash I/O |
+| `config_validation.c` | Pure typed safety validation and current-value validation |
+| `configuration.c` / `configuration.h` | Startup load/provisioning, guarded configuration writes/reset, image snapshot/save and storage-fault handling |
+| `config_storage.c` / `config_storage.h` | Fixed 128-byte image contract and EEPROM I/O adapter, with no drive or parameter policy |
 | `motor_config.c` / `motor_config.h` | Narrow live motor/protection/alignment views; coherent calibration alignment access, torque-permission view and encoder diagnostic counter adapter |
 | `drive_faults.c` / `drive_faults.h` | Named eight-bit fault masks and live diagnostic-byte access; atomic set/clear with unchanged bit assignments and recovery policies |
 | `servo_controller.c` / `servo_controller.h` | Foreground-owned PD/filter history and arm-generation tracking; typed setpoint calculation and guarded publication through the drive supervisor |
@@ -20,7 +24,7 @@ boundaries. All preserve the selected firmware's motor behavior.
 | `app.c` / `app.h` | Foreground deadlines/counters, sensor acquisition, controller invocation, measurement/diagnostic publication, periodic services, LED/button and bounded serial processing |
 | `main.c` | Peripheral and motor-dependency startup, CAN filters/transceiver/start, HAL forwarding, application initialization and foreground `App_Process` call |
 | `foc.c` | Existing FOC modes, current regulation, current/ADC protection, immediate coast, shared FOC watchdog and blocking calibration trajectory |
-| `protocol.c` | Serial framing/register requests and persistence, acquiring/releasing maintenance through the supervisor |
+| `protocol.c` | Serial framing/register reads, LED/reboot and replies; delegates configuration writes/reset to the configuration service |
 
 ```mermaid
 flowchart TD
@@ -37,14 +41,18 @@ flowchart TD
     FOC -->|typed calibration alignment| Config
     App -->|typed measurements| Drive
     Drive -->|command and status mirrors| Config
-    UART[Serial configuration / reset] -->|maintenance permission| Drive
+    UART[Serial configuration / reset] --> Service[Configuration service]
+    Service -->|maintenance permission| Drive
+    Service -->|apply or capture image| Config
+    Service --> Storage[Fixed image / EEPROM adapter]
     UART --> Config
 ```
 
 The owned `ServoCommand` is authoritative. The legacy goal registers are mirrors
 for diagnostics, not a second command owner. `DriveConfig` is currently a typed
-snapshot decoded from the existing settings store; configuration persistence has
-not been migrated. `DriveStatus` combines owned measurements with current faults,
+snapshot decoded from the existing settings store. Persistence has explicit
+service/storage boundaries and retains its original format. `DriveStatus`
+combines owned measurements with current faults,
 arming, maintenance and FOC calibration progress. Its state is an application
 view, not a replacement for FOC's internal modes or a new CAN telemetry format.
 
@@ -94,7 +102,7 @@ view, not a replacement for FOC's internal modes or a new CAN telemetry format.
 - Motor snapshots and complete alignment writes restore the caller's IRQ mask.
   They decode the existing image on demand, with no cached copy or new apply
   policy. Calibration alignment rollback uses the same original bits; persistence
-  delegates through `control_persist_config` to unchanged whole-image storage.
+  delegates through `Config_Save` to unchanged whole-image storage.
 - Fault access uses named `DriveFault` masks and an eight-bit `DriveFaultFlags`
   value. The diagnostic byte remains authoritative. Reads stay live; set/clear
   preserve unrelated flags atomically. Fast motor/permission readers and fault
@@ -116,6 +124,22 @@ view, not a replacement for FOC's internal modes or a new CAN telemetry format.
   configuration write requires disarmed, noncalibrating operation. Reset
   maintenance first inhibits ARM and disarms; its interlock remains through the
   reset delay. Parameter validation does not depend on supervisor state.
+- `Config_Validate` checks a supplied typed value without changing state;
+  `Config_IsValid` validates a coherent live view. `Config_ApplyRegisterWrite`
+  checks the configuration-only range and acquires maintenance before copying
+  bytes. Partial disarmed repairs remain supported; invalid intermediate values
+  are stored, with the existing safety checks preventing ARM/continued operation.
+- `Config_Save` requires startup, maintenance or calibration exclusion and IRQs
+  enabled. It atomically captures bytes 0x00..0x7f into a bounded local image,
+  then performs I/O outside that critical section. Failures latch the internal
+  fault; applied serial-write RAM values remain applied. Calibration retains its
+  own alignment rollback. No flash rollback or power-loss transaction is claimed.
+- `Config_Load` provisions an empty page or loads the existing image before
+  drive/ADC/CAN initialization. It retains invalid stored values for repair;
+  current-value validation still prevents arming. A failed read now reports the
+  internal fault and returns failure to startup before any image application.
+  `Config_FactoryReset` preserves the reset-delay maintenance guard on success
+  and releases it on storage failure. Serial error/reply mappings are unchanged.
 - `Drive_Run_Calibration` applies application permission checks and delegates to
   FOC. FOC's existing atomic entry guard resolves an ARM arriving between the
   foreground permission check and actual calibration entry. FOC still owns the
@@ -133,8 +157,8 @@ policy and calibration trajectory remain the baseline behavior. The derivative
 is still per sample and CAN commands still supply zero velocity gain.
 
 FOC/PWM and encoder consumers use typed interfaces; their adapters retain the
-legacy register image. Configuration/persistence responsibilities still need
-clarification. Startup/peripheral setup remains in `main.c` and calibration
+legacy register image. Storage still uses the original single page without CRC
+or transactional recovery. Startup/peripheral setup remains in `main.c` and calibration
 remains blocking. These are
 recorded later increments in the [roadmap](professional-roadmap.md), not hidden
 claims of a completed application-wide rewrite. The earlier illustrated guide
@@ -178,6 +202,13 @@ bits, unrelated-bit preservation, nested IRQ masks and persistence failures.
 Existing suites also link the real fault backend; FOC/encoder/calibration tests
 link the motor adapter. CORDIC/FOC checks now include successful gain and angle
 consumption as well as the original failure paths and immediate disable.
+
+Configuration tests now also link the real validation/service/storage/register
+modules, without including their implementation source. They exercise image
+size and runtime exclusion, existing/empty/invalid image loading, read/write
+failures, pure validation, staged repairs, permissions, maintenance lifetime and
+factory reset/reserved-byte behavior. Protocol tests link that same production
+configuration path; startup checks include a failed load before ADC/CAN startup.
 
 Validated on 2026-10-27:
 

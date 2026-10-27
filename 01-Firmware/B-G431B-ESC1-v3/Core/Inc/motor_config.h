@@ -39,10 +39,5 @@ bool control_torque_requested(void) __attribute__((section(".ccmram")));
 
 // Foreground encoder diagnostics: preserve the existing wrapping byte counter.
 void control_record_sensor_error(void);
-// Parameter validation only; application maintenance/arming policy is separate.
-bool control_configuration_valid(void);
-// Foreground calibration bridge to the unchanged whole-settings persistence.
-// Failure retains the existing internal-fault latch; no rollback is promised.
-bool control_persist_config(void);
 
 #endif

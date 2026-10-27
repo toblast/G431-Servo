@@ -39,6 +39,9 @@ C_SOURCES =  \
 Core/Src/app.c \
 Core/Src/as5600.c \
 Core/Src/can_servo.c \
+Core/Src/config_validation.c \
+Core/Src/config_storage.c \
+Core/Src/configuration.c \
 Core/Src/control_table.c \
 Core/Src/cordic.c \
 Core/Src/drive.c \

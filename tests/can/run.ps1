@@ -38,6 +38,7 @@ foreach ($optimization in @('O0', 'O2')) {
         (Join-Path $firmwareRoot 'Core/Src/can_servo.c'),
         (Join-Path $firmwareRoot 'Core/Src/drive.c'),
         (Join-Path $firmwareRoot 'Core/Src/drive_faults.c'),
+        (Join-Path $firmwareRoot 'Core/Src/config_validation.c'),
         (Join-Path $firmwareRoot 'Core/Src/control_table.c'), '-o', $executable)
     & $Compiler @compilerArgs
     if ($LASTEXITCODE -ne 0) { throw "Native C compilation failed ($optimization, $LASTEXITCODE)." }

@@ -29,7 +29,7 @@ void AppTest_Reset(uint16_t start_us)
     memset(regs, 0, sizeof regs);
     test_primask = 0;
     test_irq_restored = NULL;
-    factory_reset_eeprom_regs();
+    control_reset_config_defaults();
     reset_ram_regs();
     app_test.position = 123.45f; app_test.velocity = -20.75f;
     app_test.torque = -500; app_test.flux = 123;

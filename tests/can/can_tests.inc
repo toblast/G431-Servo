@@ -28,7 +28,7 @@ HAL_StatusTypeDef test_can_get_rx_message(FDCAN_HandleTypeDef *handle, uint32_t 
 static void reset_fixture(bool armed)
 {
     memset(regs, 0, sizeof(regs));
-    factory_reset_eeprom_regs();
+    control_reset_config_defaults();
     memset(pending_data, 0x5A, sizeof(pending_data));
     regs[REG_ID] = 1;
     regs[REG_MIN_POSITION_DEG_L] = LOW_BYTE(-180);

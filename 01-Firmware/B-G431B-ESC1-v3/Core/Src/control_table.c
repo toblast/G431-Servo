@@ -7,13 +7,16 @@
 
 #include "control_table.h"
 #include "binary_tool.h"
-#include "eeprom.h"
 #include "telemetry.h"
 
 #include "stm32g4xx_hal.h"
 #include <string.h>
 
 uint8_t regs[REG_MAX];
+
+#if REG_TORQUE_ENABLE != CONFIG_IMAGE_SIZE
+#error "Configuration image must end before runtime registers"
+#endif
 
 DriveConfig control_read_config(void)
 {
@@ -68,24 +71,10 @@ void control_mirror_measurements(DriveMeasurements const *measurements)
     regs[REG_MOVING] = measurements->moving;
 }
 
-bool control_configuration_valid(void)
+void control_reset_config_defaults(void)
 {
-    DriveConfig const config = control_read_config();
-    return config.min_position_deg < config.max_position_deg && config.min_position_deg >= -3276 && config.max_position_deg <= 3276 &&
-           config.max_velocity_dps > 0 && (uint16_t)config.max_velocity_dps <= SERVO_BENCH_MAX_VELOCITY_DPS &&
-           config.max_current_mA > 0 && config.max_current_mA <= SERVO_BENCH_MAX_CURRENT_MA &&
-           config.encoder_bits == 12 && config.motor_pole_pairs != 0 && config.invert_phase_motor <= 1 &&
-           config.low_voltage_V > 0 && config.low_voltage_V < config.high_voltage_V &&
-           config.high_voltage_V <= REG_HIGH_VOLTAGE_LIMIT_VALUE &&
-           config.temperature_limit_C > 0 && config.temperature_limit_C <= REG_TEMPERATURE_LIMIT_VALUE &&
-           config.flux_current_kp_raw >= 0 && config.flux_current_ki_raw >= 0 &&
-           (config.flux_current_kp_raw > 0 || config.flux_current_ki_raw > 0) &&
-           config.torque_current_kp_raw >= 0 && config.torque_current_ki_raw >= 0 &&
-           (config.torque_current_kp_raw > 0 || config.torque_current_ki_raw > 0);
-}
-
-HAL_StatusTypeDef factory_reset_eeprom_regs()
-{
+	uint32_t const primask = __get_PRIMASK();
+	__disable_irq();
 	regs[REG_MODEL_NUMBER_L] = LOW_BYTE(REG_MODEL_NUMBER_VALUE);
 	regs[REG_MODEL_NUMBER_H] = HIGH_BYTE(REG_MODEL_NUMBER_VALUE);
 	regs[REG_VERSION] = REG_VERSION_VALUE;
@@ -172,29 +161,32 @@ HAL_StatusTypeDef factory_reset_eeprom_regs()
 
 	regs[REG_EWMA_ENCODER] = REG_EWMA_ENCODER_VALUE;
 
-	return store_eeprom_regs();
+	__set_PRIMASK(primask);
 }
 
 
-void load_eeprom_regs()
+void control_capture_config(ConfigImage *image)
 {
-	eeprom_restore(regs, REG_TORQUE_ENABLE); // REG_TORQUE_ENABLE must be 64 bits aligned
+	uint32_t const primask = __get_PRIMASK();
+	__disable_irq();
+	memcpy(image->bytes, regs, sizeof image->bytes);
+	__set_PRIMASK(primask);
 }
 
-HAL_StatusTypeDef store_eeprom_regs()
+void control_apply_config(ConfigImage const *image)
 {
-	HAL_StatusTypeDef const result = eeprom_store(regs, REG_TORQUE_ENABLE);
-	if (result != HAL_OK) hardware_fault_set(DRIVE_FAULT_INTERNAL);
-	return result;
+	uint32_t const primask = __get_PRIMASK();
+	__disable_irq();
+	memcpy(regs, image->bytes, sizeof image->bytes);
+	__set_PRIMASK(primask);
+}
+
+void control_apply_config_bytes(uint16_t address, uint16_t length, uint8_t const *data)
+{
+	memcpy(&regs[address], data, length);
 }
 
 void reset_ram_regs()
 {
 	memset(&regs[REG_TORQUE_ENABLE],0,REG_MAX-REG_TORQUE_ENABLE);
 }
-
-bool control_persist_config(void)
-{
-    return store_eeprom_regs() == HAL_OK;
-}
-

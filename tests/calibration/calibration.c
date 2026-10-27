@@ -3,6 +3,7 @@
 #include <string.h>
 #include "foc.h"
 #include "control_table.h"
+#include "configuration.h"
 #include "math_tool.h"
 #include "binary_tool.h"
 
@@ -24,7 +25,7 @@ static HAL_StatusTypeDef store_status = HAL_OK;
 /* GLOBALS */
 static void LL_FOC_coast(void) { }
 int positionSensor_isReady(void) { return ready; }
-bool control_configuration_valid(void) { return true; }
+bool Config_IsValid(void) { return true; }
 float positionSensor_getRadiansMultiturn(void) { return rotor_angle; }
 uint32_t API_FOC_Get_Timestamp_ms(void)
 {
@@ -62,7 +63,7 @@ void API_FOC_Service_Update(void)
     last_service = clock_us;
     ++services;
 }
-bool control_persist_config(void)
+bool Config_Save(void)
 {
     CHECK(API_FOC_Is_Calibrating());
     CHECK(foc_state == FOC_STATE_IDLE && setpoint_flux_voltage_V == 0);

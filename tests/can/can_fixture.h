@@ -5,6 +5,7 @@
 #include <string.h>
 #include <math.h>
 #include "control_table.h"
+#include "configuration.h"
 #include "binary_tool.h"
 #include "foc.h"
 #include "drive.h"

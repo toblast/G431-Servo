@@ -12,6 +12,7 @@
 #include <stdbool.h>
 #include "drive_types.h"
 #include "motor_config.h"
+#include "config_storage.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -237,9 +238,12 @@ extern "C" {
 DriveConfig control_read_config(void);
 void control_mirror_command(bool enabled, ServoCommand const *command);
 void control_mirror_measurements(DriveMeasurements const *measurements);
-HAL_StatusTypeDef factory_reset_eeprom_regs();
-void load_eeprom_regs();
-HAL_StatusTypeDef store_eeprom_regs();
+// Register/image codec only; configuration service owns mutation policy and I/O.
+void control_reset_config_defaults(void);
+void control_capture_config(ConfigImage *image);
+void control_apply_config(ConfigImage const *image);
+// Service-only primitive: caller has validated the config-only range and holds IRQs.
+void control_apply_config_bytes(uint16_t address, uint16_t length, uint8_t const *data);
 void reset_ram_regs();
 
 extern uint8_t regs[REG_MAX];

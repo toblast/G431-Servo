@@ -1,20 +1,55 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../../01-Firmware/B-G431B-ESC1-v3/Core/Src/control_table.c"
+#include "configuration.h"
+#include "control_table.h"
+#include "binary_tool.h"
+#include "drive.h"
 
 uint32_t test_primask;
 void (*test_irq_restored)(void);
 static unsigned failures;
 static unsigned store_calls;
+static unsigned load_calls, stored_size, loaded_size;
 static HAL_StatusTypeDef store_status = HAL_OK;
+static HAL_StatusTypeDef load_status = HAL_OK;
+static bool empty_page, armed, calibrating, maintenance;
+static void (*on_store)(void);
 static uint8_t image[REG_TORQUE_ENABLE];
 #define CHECK(condition) do { if (!(condition)) { \
     fprintf(stderr, "Configuration check failed at line %d: %s\n", __LINE__, #condition); ++failures; \
 } } while (0)
-HAL_StatusTypeDef eeprom_store(uint8_t const *data, uint32_t size) { ++store_calls; memcpy(image, data, size); return store_status; }
-HAL_StatusTypeDef eeprom_restore(uint8_t *data, uint32_t size) { memcpy(data, image, size); return HAL_OK; }
-static void defaults(void) { memset(regs, 0, sizeof regs); factory_reset_eeprom_regs(); }
+bool eeprom_empty(void) { return empty_page; }
+HAL_StatusTypeDef eeprom_store(uint8_t const *data, uint32_t size)
+{
+    CHECK(test_primask == 0 && size == sizeof image);
+    ++store_calls; stored_size = size;
+    if (on_store) on_store();
+    memcpy(image, data, size); empty_page = false;
+    return store_status;
+}
+HAL_StatusTypeDef eeprom_restore(uint8_t *data, uint32_t size)
+{
+    CHECK(test_primask == 0 && size == sizeof image);
+    ++load_calls; loaded_size = size;
+    if (load_status == HAL_OK) memcpy(data, image, size);
+    return load_status;
+}
+bool Drive_Begin_Maintenance(bool disarm_first)
+{
+    if (!disarm_first) CHECK(test_primask == 1);
+    if (maintenance || calibrating || (!disarm_first && armed)) return false;
+    maintenance = true;
+    if (disarm_first) { armed = false; regs[REG_TORQUE_ENABLE] = 0; }
+    return true;
+}
+void Drive_End_Maintenance(void) { maintenance = false; }
+static void defaults(void)
+{
+    memset(regs, 0, sizeof regs);
+    armed = calibrating = maintenance = false;
+    control_reset_config_defaults();
+}
 static void word(unsigned address, int value) { regs[address] = LOW_BYTE(value); regs[address + 1] = HIGH_BYTE(value); }
 
 static void change_after_read(void)
@@ -91,51 +126,122 @@ static void test_typed_motor_and_fault_boundaries(void)
     test_primask = 0;
     hardware_fault_clear(0xff);
     store_status = HAL_ERROR;
-    CHECK(!control_persist_config() && hardware_fault_status() == DRIVE_FAULT_INTERNAL);
+    CHECK(!Config_Save() && hardware_fault_status() == DRIVE_FAULT_INTERNAL);
     hardware_fault_clear(0xff);
     store_status = HAL_OK;
-    CHECK(control_persist_config() && hardware_fault_status() == 0);
+    CHECK(Config_Save() && hardware_fault_status() == 0);
+}
+
+static void check_maintenance_during_store(void)
+{
+    CHECK(maintenance && !armed && !calibrating);
+}
+static void test_configuration_operations(void)
+{
+    defaults();
+    store_status = load_status = HAL_OK;
+    store_calls = load_calls = 0;
+    DriveConfig candidate = control_read_config();
+    CHECK(Config_Validate(&candidate) && !Config_Validate(NULL));
+    candidate.max_current_mA = 1001;
+    CHECK(!Config_Validate(&candidate) && Config_IsValid());
+
+    // Only the 128-byte configuration prefix is persisted or applied.
+    regs[REG_LED] = 9; regs[REG_GOAL_POS_KP] = 31;
+    CHECK(Config_Save() && stored_size == CONFIG_IMAGE_SIZE);
+    uint8_t const runtime_led = regs[REG_LED];
+    word(REG_MAX_CURRENT_MA_L, 777);
+    CHECK(Config_Load() && loaded_size == CONFIG_IMAGE_SIZE && store_calls == 1);
+    CHECK(control_read_config().max_current_mA == 500 && regs[REG_LED] == runtime_led && regs[REG_GOAL_POS_KP] == 31);
+    word(REG_MAX_CURRENT_MA_L, 26000);
+    CHECK(Config_Save());
+    control_reset_config_defaults();
+    CHECK(Config_Load() && !Config_IsValid() && control_read_config().max_current_mA == 26000);
+
+    defaults(); empty_page = true; store_calls = load_calls = 0;
+    CHECK(Config_Load() && Config_IsValid() && store_calls == 1 && load_calls == 1);
+    defaults(); empty_page = true; store_status = HAL_ERROR; load_calls = 0;
+    CHECK(!Config_Load() && load_calls == 0 && hardware_fault_status() == DRIVE_FAULT_INTERNAL);
+    defaults(); empty_page = false; load_status = HAL_ERROR; store_status = HAL_OK;
+    word(REG_MAX_CURRENT_MA_L, 731);
+    CHECK(!Config_Load() && control_read_config().max_current_mA == 731 && hardware_fault_status() == DRIVE_FAULT_INTERNAL);
+    load_status = HAL_OK;
+
+    defaults();
+    uint8_t value = 0;
+    on_store = check_maintenance_during_store;
+    CHECK(Config_ApplyRegisterWrite(REG_ENCODER_BITS, 1, &value) == CONFIG_OK);
+    CHECK(!Config_IsValid() && !maintenance); // Intermediate repair values remain supported.
+    value = 12;
+    CHECK(Config_ApplyRegisterWrite(REG_ENCODER_BITS, 1, &value) == CONFIG_OK && Config_IsValid());
+    unsigned const before = store_calls;
+    CHECK(Config_ApplyRegisterWrite(0, 0, &value) == CONFIG_ACCESS_ERROR);
+    CHECK(Config_ApplyRegisterWrite(0, 1, NULL) == CONFIG_ACCESS_ERROR);
+    CHECK(Config_ApplyRegisterWrite(REG_TORQUE_ENABLE - 1, 2, &value) == CONFIG_ACCESS_ERROR);
+    CHECK(Config_ApplyRegisterWrite(REG_LED, 1, &value) == CONFIG_ACCESS_ERROR);
+    armed = true;
+    CHECK(Config_ApplyRegisterWrite(REG_ID, 1, &value) == CONFIG_BUSY);
+    armed = false; calibrating = true;
+    CHECK(Config_ApplyRegisterWrite(REG_ID, 1, &value) == CONFIG_BUSY);
+    calibrating = false;
+    CHECK(store_calls == before && regs[REG_ID] == REG_ID_VALUE);
+    store_status = HAL_ERROR; value = 27;
+    CHECK(Config_ApplyRegisterWrite(REG_ID, 1, &value) == CONFIG_STORAGE_ERROR);
+    CHECK(regs[REG_ID] == 27 && !maintenance && hardware_fault_status() == DRIVE_FAULT_INTERNAL);
+
+    defaults(); store_status = HAL_OK;
+    regs[REG_RESERVED_RAM_3] = 0x5a; regs[REG_TORQUE_ENABLE - 1] = 0xab;
+    regs[REG_LED] = 9; armed = true; regs[REG_TORQUE_ENABLE] = 1;
+    CHECK(Config_FactoryReset() == CONFIG_OK && maintenance && !armed && !regs[REG_TORQUE_ENABLE]);
+    CHECK(Config_IsValid() && regs[REG_LED] == 9 && regs[REG_RESERVED_RAM_3] == 0x5a && image[REG_TORQUE_ENABLE - 1] == 0xab);
+    CHECK(Config_ApplyRegisterWrite(REG_ID, 1, &value) == CONFIG_BUSY);
+    Drive_End_Maintenance();
+    store_status = HAL_ERROR;
+    CHECK(Config_FactoryReset() == CONFIG_STORAGE_ERROR && !maintenance && hardware_fault_status() == DRIVE_FAULT_INTERNAL);
+    on_store = NULL;
+    store_status = HAL_OK;
 }
 int main(void)
 {
     test_typed_motor_and_fault_boundaries();
     defaults();
-    CHECK(control_configuration_valid());
+    CHECK(Config_IsValid());
     DriveConfig const config = control_read_config();
     CHECK(config.min_position_deg == -800 && config.max_position_deg == 800);
     CHECK(config.max_current_mA == 500 && config.encoder_bits == 12);
     store_status = HAL_ERROR;
-    CHECK(store_eeprom_regs() == HAL_ERROR);
+    CHECK(!Config_Save());
     CHECK(hardware_fault_status() == (1U << HW_ERROR_BIT_INTERNAL));
     hardware_fault_clear(0xff);
-    CHECK(factory_reset_eeprom_regs() == HAL_ERROR);
+    CHECK(Config_FactoryReset() == CONFIG_STORAGE_ERROR);
     CHECK(hardware_fault_status() == (1U << HW_ERROR_BIT_INTERNAL));
     hardware_fault_clear(0xff);
     store_status = HAL_OK;
     CHECK(MAKE_SHORT(regs[REG_MAX_CURRENT_MA_L], regs[REG_MAX_CURRENT_MA_H]) == 500);
     CHECK(regs[REG_ENCODER_BITS] == 12);
-    word(REG_MAX_CURRENT_MA_L, 0); CHECK(!control_configuration_valid());
-    word(REG_MAX_CURRENT_MA_L, 1000); CHECK(control_configuration_valid());
-    word(REG_MAX_CURRENT_MA_L, 1001); CHECK(!control_configuration_valid());
-    word(REG_MAX_CURRENT_MA_L, 26000); CHECK(!control_configuration_valid());
-    defaults(); word(REG_MAX_VELOCITY_DPS_L, 0); CHECK(!control_configuration_valid());
-    word(REG_MAX_VELOCITY_DPS_L, -1); CHECK(!control_configuration_valid());
-    word(REG_MAX_VELOCITY_DPS_L, 361); CHECK(!control_configuration_valid());
-    defaults(); word(REG_MIN_POSITION_DEG_L, 900); CHECK(!control_configuration_valid());
-    defaults(); word(REG_MAX_POSITION_DEG_L, 3277); CHECK(!control_configuration_valid());
-    defaults(); regs[REG_ENCODER_BITS] = 14; CHECK(!control_configuration_valid());
-    defaults(); regs[REG_MOTOR_POLE_PAIRS] = 0; CHECK(!control_configuration_valid());
-    defaults(); regs[REG_INV_PHASE_MOTOR] = 2; CHECK(!control_configuration_valid());
-    defaults(); regs[REG_LOW_VOLTAGE_LIMIT] = 0; CHECK(!control_configuration_valid());
-    defaults(); regs[REG_HIGH_VOLTAGE_LIMIT] = 10; CHECK(!control_configuration_valid());
-    defaults(); regs[REG_HIGH_VOLTAGE_LIMIT] = 255; CHECK(!control_configuration_valid());
-    defaults(); regs[REG_TEMPERATURE_LIMIT] = 0; CHECK(!control_configuration_valid());
-    defaults(); regs[REG_TEMPERATURE_LIMIT] = 71; CHECK(!control_configuration_valid());
-    defaults(); word(REG_PID_FLUX_CURRENT_KP_L, -1); CHECK(!control_configuration_valid());
-    defaults(); word(REG_PID_TORQUE_CURRENT_KI_L, -1); CHECK(!control_configuration_valid());
+    word(REG_MAX_CURRENT_MA_L, 0); CHECK(!Config_IsValid());
+    word(REG_MAX_CURRENT_MA_L, 1000); CHECK(Config_IsValid());
+    word(REG_MAX_CURRENT_MA_L, 1001); CHECK(!Config_IsValid());
+    word(REG_MAX_CURRENT_MA_L, 26000); CHECK(!Config_IsValid());
+    defaults(); word(REG_MAX_VELOCITY_DPS_L, 0); CHECK(!Config_IsValid());
+    word(REG_MAX_VELOCITY_DPS_L, -1); CHECK(!Config_IsValid());
+    word(REG_MAX_VELOCITY_DPS_L, 361); CHECK(!Config_IsValid());
+    defaults(); word(REG_MIN_POSITION_DEG_L, 900); CHECK(!Config_IsValid());
+    defaults(); word(REG_MAX_POSITION_DEG_L, 3277); CHECK(!Config_IsValid());
+    defaults(); regs[REG_ENCODER_BITS] = 14; CHECK(!Config_IsValid());
+    defaults(); regs[REG_MOTOR_POLE_PAIRS] = 0; CHECK(!Config_IsValid());
+    defaults(); regs[REG_INV_PHASE_MOTOR] = 2; CHECK(!Config_IsValid());
+    defaults(); regs[REG_LOW_VOLTAGE_LIMIT] = 0; CHECK(!Config_IsValid());
+    defaults(); regs[REG_HIGH_VOLTAGE_LIMIT] = 10; CHECK(!Config_IsValid());
+    defaults(); regs[REG_HIGH_VOLTAGE_LIMIT] = 255; CHECK(!Config_IsValid());
+    defaults(); regs[REG_TEMPERATURE_LIMIT] = 0; CHECK(!Config_IsValid());
+    defaults(); regs[REG_TEMPERATURE_LIMIT] = 71; CHECK(!Config_IsValid());
+    defaults(); word(REG_PID_FLUX_CURRENT_KP_L, -1); CHECK(!Config_IsValid());
+    defaults(); word(REG_PID_TORQUE_CURRENT_KI_L, -1); CHECK(!Config_IsValid());
     defaults(); word(REG_PID_TORQUE_CURRENT_KP_L, 0); word(REG_PID_TORQUE_CURRENT_KI_L, 0);
-    CHECK(!control_configuration_valid());
-    word(REG_PID_TORQUE_CURRENT_KI_L, 10); CHECK(control_configuration_valid());
-    puts(failures ? "Configuration regressions failed." : "Configuration regressions passed.");
+    CHECK(!Config_IsValid());
+    word(REG_PID_TORQUE_CURRENT_KI_L, 10); CHECK(Config_IsValid());
+    test_configuration_operations();
+    puts(failures ? "Configuration regressions failed." : "Configuration validation, application and storage regressions passed.");
     return failures ? EXIT_FAILURE : EXIT_SUCCESS;
 }

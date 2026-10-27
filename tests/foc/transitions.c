@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <math.h>
 #include "control_table.h"
+#include "configuration.h"
 #include "pid.h"
 
 uint8_t regs[REG_MAX];
@@ -12,7 +13,7 @@ uint32_t test_primask;
 void (*test_irq_restored)(void);
 static unsigned delays, brakes, observations;
 static unsigned failures;
-bool control_configuration_valid(void) { return true; }
+bool Config_IsValid(void) { return true; }
 #define CHECK(condition) do { if (!(condition)) { \
     fprintf(stderr, "FOC transition failed at line %d: %s\n", __LINE__, #condition); ++failures; \
 } } while (0)

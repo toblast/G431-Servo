@@ -7,6 +7,7 @@
 
 #include "protocol.h"
 #include "control_table.h"
+#include "configuration.h"
 #include "binary_tool.h"
 #include "serial.h"
 #include "drive.h"
@@ -126,21 +127,14 @@ void packet_encapsulate(uint32_t payload_status_length) // length from instructi
 static bool protocol_write_registers(uint16_t address, uint16_t length, uint8_t const *data)
 {
     if (length == 0 || address >= REG_MAX || length > REG_MAX - address) return false;
-    bool const configuration = address < REG_TORQUE_ENABLE && length <= REG_TORQUE_ENABLE - address;
-    bool const led = address == REG_LED && length == 1;
-    uint32_t const primask = __get_PRIMASK();
-    __disable_irq();
-    bool const allowed = led || (configuration && Drive_Begin_Maintenance(false));
-    if (allowed) {
-        memcpy(&regs[address], data, length);
+    if (address == REG_LED && length == 1) {
+        uint32_t const primask = __get_PRIMASK();
+        __disable_irq();
+        regs[REG_LED] = data[0];
+        __set_PRIMASK(primask);
+        return true;
     }
-    __set_PRIMASK(primask);
-    if (allowed && configuration) {
-        HAL_StatusTypeDef const result = store_eeprom_regs();
-        Drive_End_Maintenance();
-        return result == HAL_OK;
-    }
-    return allowed;
+    return Config_ApplyRegisterWrite(address, length, data) == CONFIG_OK;
 }
 
 void instruction_handler()
@@ -215,16 +209,15 @@ void instruction_handler()
 		break;
 	case INSTR_FACTORY_RESET:
 		{
-			if (!Drive_Begin_Maintenance(true)) break;
-			HAL_StatusTypeDef const result = factory_reset_eeprom_regs();
-			if (result != HAL_OK) Drive_End_Maintenance();
+			ConfigResult const result = Config_FactoryReset();
+			if (result == CONFIG_BUSY) break;
 			// reply with a status packet with Model Number LSB MSB and Firmware version
 			tx_packet_buffer[PKT_INSTRUCTION]= INSTR_STATUS;
-			tx_packet_buffer[PKT_ERROR]= result == HAL_OK ? ERROR_NONE : ERROR_RESULT_FAIL;
+			tx_packet_buffer[PKT_ERROR]= result == CONFIG_OK ? ERROR_NONE : ERROR_RESULT_FAIL;
 			packet_encapsulate(2);
 			// send packet
 			HAL_Serial_Write(&serial, (uint8_t const *)tx_packet_buffer,tx_packet_length);
-			if (result != HAL_OK) break;
+			if (result != CONFIG_OK) break;
 			// reboot
 			HAL_Delay(100);
 			HAL_NVIC_SystemReset();

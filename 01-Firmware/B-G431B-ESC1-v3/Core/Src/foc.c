@@ -16,6 +16,7 @@
 #include "position_sensor.h"
 #include "math_tool.h"
 #include "motor_config.h"
+#include "configuration.h"
 #include "drive_faults.h"
 #include "pid.h"
 
@@ -129,7 +130,7 @@ void API_FOC_Torque_Enable()
 	pid_reset(&flux_pi);
 	pid_reset(&torque_pi);
 	// Publish the active state only after every target and PI state is reset.
-	if (control_torque_requested() && hardware_fault_status() == 0 && control_configuration_valid())
+	if (control_torque_requested() && hardware_fault_status() == 0 && Config_IsValid())
 		foc_state = FOC_STATE_TORQUE_CONTROL;
 	__set_PRIMASK(primask);
 }
@@ -344,7 +345,7 @@ int API_FOC_Calibrate()
     uint32_t const primask = __get_PRIMASK();
     __disable_irq();
     if (calibration_active || control_torque_requested() ||
-        hardware_fault_status() != 0 || !positionSensor_isReady() || !control_configuration_valid())
+        hardware_fault_status() != 0 || !positionSensor_isReady() || !Config_IsValid())
     {
         __set_PRIMASK(primask);
         return 3;
@@ -413,7 +414,7 @@ int API_FOC_Calibrate()
     FOC_Calibration_Idle();
     // Keep calibration_active true through persistence so CAN ARM stays rejected.
     if (hardware_fault_status() != 0 || calibration_cancelled) goto done;
-    if (!control_persist_config())
+    if (!Config_Save())
     {
         result = 4;
         goto done;

@@ -1,4 +1,5 @@
 #include "app.h"
+#include "configuration.h"
 #include "main.h"
 #include "position_sensor.h"
 #include "servo_controller.h"
@@ -69,7 +70,7 @@ static void update_servo(void)
 
 static void service(void)
 {
-    if (!control_configuration_valid()) {
+    if (!Config_IsValid()) {
         hardware_fault_set(DRIVE_FAULT_CONFIGURATION);
         Drive_Disarm();
     } else hardware_fault_clear(DRIVE_FAULT_CONFIGURATION);

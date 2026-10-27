@@ -27,7 +27,7 @@
 #include "position_sensor.h"
 #include "foc.h"
 #include "app.h"
-#include "eeprom.h"
+#include "configuration.h"
 #include "control_table.h"
 #include "can_servo.h"
 #include "drive.h"
@@ -204,11 +204,10 @@ int main(void)
   /* USER CODE BEGIN 2 */
 	if (HAL_TIM_Base_Start(&htim6) != HAL_OK) Error_Handler(); // 1us base time
 
-  if (eeprom_empty() && factory_reset_eeprom_regs() != HAL_OK) Error_Handler();
-  load_eeprom_regs();
+  if (!Config_Load()) Error_Handler();
   reset_ram_regs();
   Drive_Init();
-  if (!control_configuration_valid()) hardware_fault_set(DRIVE_FAULT_CONFIGURATION);
+  if (!Config_IsValid()) hardware_fault_set(DRIVE_FAULT_CONFIGURATION);
   HAL_Serial_Init(&huart2,&serial);
   if (!positionSensor_init())
   {

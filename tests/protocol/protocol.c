@@ -3,7 +3,6 @@
 #include <stdbool.h>
 #include "../../01-Firmware/B-G431B-ESC1-v3/Core/Src/protocol.c"
 
-uint8_t regs[REG_MAX];
 static bool maintenance_active;
 HAL_Serial_Handler serial;
 uint32_t test_primask;
@@ -27,8 +26,15 @@ bool Drive_Begin_Maintenance(bool disarm_first)
 }
 void Drive_End_Maintenance(void) { maintenance_active = false; }
 bool API_FOC_Is_Calibrating(void) { return calibrating; }
-HAL_StatusTypeDef store_eeprom_regs(void) { CHECK(!armed && !calibrating && test_primask == 0 && maintenance_active); ++stores; return store_status; }
-HAL_StatusTypeDef factory_reset_eeprom_regs(void) { CHECK(!armed && !regs[REG_TORQUE_ENABLE] && maintenance_active); ++stores; return store_status; }
+static uint8_t stored_image[CONFIG_IMAGE_SIZE];
+bool eeprom_empty(void) { return false; }
+HAL_StatusTypeDef eeprom_store(uint8_t const *data, uint32_t size)
+{
+    CHECK(!armed && !calibrating && test_primask == 0 && maintenance_active && size == sizeof stored_image);
+    ++stores; memcpy(stored_image, data, size); return store_status;
+}
+HAL_StatusTypeDef eeprom_restore(uint8_t *data, uint32_t size)
+{ memcpy(data, stored_image, size); return HAL_OK; }
 void HAL_Delay(uint32_t time) { (void)time; CHECK(!armed && !regs[REG_TORQUE_ENABLE]); }
 void HAL_NVIC_SystemReset(void) { CHECK(maintenance_active); maintenance_active = false; ++resets; }
 int HAL_Serial_Write(HAL_Serial_Handler *handler, uint8_t const *data, int length) {

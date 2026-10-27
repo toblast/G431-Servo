@@ -56,12 +56,10 @@ static int HAL_ADC_Start_DMA(ADC_HandleTypeDef *adc, uint32_t *data, unsigned co
     adc_callbacks++;
     return next_status();
 }
-static bool eeprom_empty(void) { return true; }
-static int factory_reset_eeprom_regs(void) { assert(!can_ready); return HAL_OK; }
-static void load_eeprom_regs(void) { configuration_loaded = true; }
+static bool Config_Load(void) { assert(!can_ready); if (failure_step == 9) return false; configuration_loaded = true; return true; }
 static void reset_ram_regs(void) { ram_reset = true; }
 static void Drive_Init(void) { assert(ram_reset && !can_ready); }
-static bool control_configuration_valid(void) { return true; }
+static bool Config_IsValid(void) { return true; }
 #define DRIVE_FAULT_CONFIGURATION (1U << 7)
 static void hardware_fault_set(uint8_t bits) { (void)bits; }
 static void HAL_Serial_Init(int *uart, int *handler) { (void)uart; (void)handler; serial_ready = true; }
@@ -113,6 +111,13 @@ int main(void)
         assert(false);
     }
     assert(!can_ready);
+    failure_step = 9;
+    unsigned const callbacks_before_load_failure = adc_callbacks;
+    if (setjmp(fatal_return) == 0) {
+        run_startup();
+        assert(false);
+    }
+    assert(!can_ready && adc_callbacks == callbacks_before_load_failure);
     puts("Startup dependencies, CAN/application initialization and peripheral/timebase failures passed.");
     return 0;
 }

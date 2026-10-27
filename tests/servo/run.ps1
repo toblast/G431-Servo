@@ -9,7 +9,7 @@ New-Item -ItemType Directory -Force -Path $build | Out-Null
 
 # Link real translation units; do not extract or copy controller implementation.
 $sources = @((Join-Path $PSScriptRoot 'servo.c'))
-foreach ($name in @('servo_controller', 'drive', 'drive_faults', 'control_table', 'pic', 'math_tool')) {
+foreach ($name in @('servo_controller', 'drive', 'drive_faults', 'config_validation', 'control_table', 'pic', 'math_tool')) {
     $sources += Join-Path $firmware "Core/Src/$name.c"
 }
 foreach ($optimization in @('O0', 'O2')) {

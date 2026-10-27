@@ -24,7 +24,7 @@ Paths below are relative to the selected firmware directory.
 | CAN RX and state | `HAL_FDCAN_RxFifo0Callback` forwards to `CanServo_OnRxFifo0` in `can_servo.c` for bounded FIFO handling, frame validation/decoding and reply encoding; drive permission/watchdogs remain in `drive.c` |
 | Watchdogs | `Drive_Service` in `drive.c`, shared `API_FOC_Check_Watchdog` in `foc.c` (also used during calibration), and sample-age check in `positionSensor_getRadiansEstimation` |
 | Position/velocity loop | `App_Process` schedule/acquisition in `app.c` → `ServoController_Update` in `servo_controller.c` → existing PID helper in `pic.c` → `Drive_Publish_Currents` → FOC |
-| Configuration/fault flags | `control_table.c` retains serial/flash layout and typed application views; `motor_config.c` supplies typed low-level views/alignment; `drive_faults.c` owns live flag access; serial maintenance permission is owned by `drive.c` |
+| Configuration/fault flags | `config_validation.c` validates typed settings; `configuration.c` applies/persists under drive maintenance; `config_storage.c` transfers the legacy image; register/motor/fault adapters provide the live views |
 | Calibration | Button edge/service in `app.c` → `Drive_Run_Calibration` → `API_FOC_Calibrate` and serviced waits in `foc.c` |
 | Foreground services | `App_Init`/`App_Process` in `app.c`; `main.c` initializes dependencies and repeatedly calls the application |
 | Fatal stop | `Core/Inc/emergency_stop.h`, called by `Error_Handler` and CPU fault handlers in `Core/Src/stm32g4xx_it.c` |
@@ -179,6 +179,12 @@ are protected; SYNC_WRITE/SYNC_READ have been removed. Configuration writes,
 factory reset and requested reboot inhibit ARM. Flash errors set the internal
 fault and are reported as a failed operation; they do not guarantee rollback
 of a partially written flash page. Reset always starts disarmed.
+
+Configuration storage remains a 128-byte image at the existing flash page.
+Snapshots/application exclude all runtime registers. Partial disarmed repairs
+are still accepted; safety validation gates ARM and periodic operation. An I/O
+failure while loading startup configuration now halts before ADC/CAN start,
+without applying a failed read. No CRC or format migration is added.
 Serial TX holds at most 31 packets, each up to 256 bytes, including the active
 DMA packet. Full queues and invalid lengths are rejected without overwriting
 pending data. Start/runtime DMA failures discard pending replies, release the
