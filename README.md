@@ -2,8 +2,8 @@
 
 `professional` starts from the tested `simplified` baseline. Its first refactors
 introduce typed application data, a drive supervisor, a separate outer servo
-controller and a CAN module without changing the command protocol or control
-equations. See the saved
+controller, CAN module and foreground application module without changing the
+command protocol or control equations. See the saved
 [professional roadmap](docs/professional-roadmap.md) and
 [current module boundaries](docs/professional-architecture.md).
 

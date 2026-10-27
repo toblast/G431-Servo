@@ -18,25 +18,23 @@ Completed:
   the drive supervisor.
 - [x] Extract the outer servo controller and its private control history.
 - [x] Extract CAN frame handling and private transport buffers.
+- [x] Extract foreground application scheduling, acquisition, telemetry and
+  periodic services into `app.c`.
 
 Next software work, in order:
 
-1. [ ] **Extract foreground application scheduling.** Move acquisition, servo
-   updates, telemetry and periodic services from `main.c` into an application
-   module. Keep the current execution order, timing rules, watchdog checks and
-   bounded serial work. Leave hardware setup and HAL forwarding in `main.c`.
-2. [ ] **Complete typed configuration and fault boundaries.** Replace remaining
+1. [ ] **Complete typed configuration and fault boundaries.** Replace remaining
    raw-register dependencies in FOC and encoder code with explicit interfaces.
    Preserve units/scales, fast control calculations and fault/shutdown behavior.
-3. [ ] **Clarify configuration and persistence responsibilities.** Give
+2. [ ] **Clarify configuration and persistence responsibilities.** Give
    validation, application and storage clear interfaces while preserving the
    existing serial addresses and flash format. CRC, transactional storage and
    migration remain separate later reliability work.
-4. [ ] **Make calibration nonblocking.** Advance explicit calibration states
+3. [ ] **Make calibration nonblocking.** Advance explicit calibration states
    through the normal foreground scheduler, preserving the trajectory,
    cancellation, fault checks and completion/storage behavior. This is a
    behavior-sensitive change and needs corresponding abnormal-condition tests.
-5. [ ] **Finish convention and documentation consistency.** Apply clear names,
+4. [ ] **Finish convention and documentation consistency.** Apply clear names,
    explicit units, caller/ownership contracts and consistent error returns as
    modules are touched, then review the remaining inconsistencies. Preserve
    working FOC code when the proposed change is only cosmetic.
@@ -141,9 +139,9 @@ limits, phase reversal and zero position-integral gain are preserved. No CAN
 field, rate, watchdog threshold, FOC or encoder implementation changed.
 The directly linked servo suite covers numerical behavior and publication races.
 
-Roadmap item 3 remains partial: foreground scheduling remains in `main.c`;
-configuration/persistence separation and low-level register coupling remain later
-increments. CAN handling is extracted in the third refactor below.
+Roadmap item 3 remains partial: configuration/persistence separation and low-level
+register coupling remain later increments. CAN handling and application scheduling
+are extracted in the third and fourth refactors below.
 
 ## Third refactor: CAN transport and protocol handling
 
@@ -163,11 +161,37 @@ receive capacity, reply metadata/encoding and TX failures alongside the existing
 malformed-frame, watchdog and supervisor regressions, at both host optimizations.
 All twelve regression suites and ARM builds at `-Og`/`-O2` pass.
 
-Next planned work is foreground application scheduling separation, followed by
-the revised software list above. Keep local build/test instructions simple;
-CI is optional and deferred. Blocking calibration, remaining register coupling,
-configuration/persistence separation, wider convention consistency and the
-earlier control/hardware decisions above remain pending.
+Application scheduling is extracted in the fourth refactor below. Keep local
+build/test instructions simple; CI is optional and deferred.
+
+## Fourth refactor: foreground application scheduling
+
+`app.c` owns the foreground deadlines, counters, acquisition/controller calls,
+measurement and diagnostic publication, periodic configuration/FOC service,
+LED/button handling and bounded serial processing. `main.c` retains hardware and
+motor-dependency startup, CAN setup and HAL forwarding. It calls `App_Init` once
+after CAN setup and `App_Process` once per foreground pass.
+
+The scheduling rules are preserved: watchdogs first, one 16-bit microsecond timer
+sample per pass, at most one 250 us servo update and one 10000 us service update,
+with deadlines advanced by their fixed periods. Delayed work catches up over
+later passes. Service uses the original time sample even if acquisition takes
+time. Serial processing is limited to the bytes present when that section starts.
+Calibration remains blocking, with the same button-edge interlocks, cancellation
+and result reporting. Controller, drive, CAN, FOC and encoder implementations
+are unchanged. Inactive trace/debug scaffolding was removed with the old loop.
+
+The application suite directly links `app.c` and the register adapter, checking
+deadlines, phase, rollover, call order, delayed acquisition, faults, button edges,
+blocking calibration, serial refill/shrink and IRQ-mask restoration. Telemetry
+tests also link the application directly and exercise counters through public
+passes, replacing source-text extraction. Startup checks verify application
+initialization after its dependencies. All thirteen regression suites and ARM
+builds at `-Og`/`-O2` pass.
+
+The next pending point is typed configuration/fault boundaries. Nonblocking
+calibration, configuration/persistence separation, wider convention consistency
+and the earlier control/hardware decisions remain pending.
 
 ## Reference documents
 

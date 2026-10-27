@@ -23,14 +23,8 @@ uint8_t regs[1];
 #define REG_TORQUE_ENABLE 0
 static bool configuration_loaded, ram_reset, sensor_ready, cordic_ready;
 static bool foc_ready, service_ready, serial_ready, can_ready, can_transport_ready;
+static bool app_ready;
 static unsigned adc_callbacks;
-static bool mock_button_down;
-static bool mock_servo_disarmed = true;
-static bool Drive_Is_Disarmed(void) { return mock_servo_disarmed; }
-#define BUTTON_GPIO_Port 0
-#define BUTTON_Pin 0
-#define GPIO_PIN_RESET 0
-static int HAL_GPIO_ReadPin(int port, int pin) { (void)port; (void)pin; return mock_button_down ? 0 : 1; }
 static int failure_step, step;
 static jmp_buf fatal_return;
 #define TIM_CHANNEL_1 1
@@ -85,6 +79,11 @@ static void FDCAN_Config(void)
     assert(can_transport_ready);
     can_ready = true;
 }
+static void App_Init(TIM_HandleTypeDef *timer, int *handler)
+{
+    assert(timer == &htim6 && handler == &serial && can_ready && service_ready);
+    app_ready = true;
+}
 
 /* FOC_INIT */
 
@@ -96,7 +95,7 @@ static void run_startup(void)
 int main(void)
 {
     run_startup();
-    assert(adc_callbacks == 2 && can_ready);
+    assert(adc_callbacks == 2 && can_ready && app_ready);
     for (failure_step = 1; failure_step <= 7; ++failure_step) {
         step = 0;
         can_ready = false;
@@ -114,23 +113,6 @@ int main(void)
         assert(false);
     }
     assert(!can_ready);
-    /* BUTTON_STATE */
-    bool const button_states[] = { true, true, false, true, true, false, true };
-    bool const requests[] = { false, false, false, true, false, false, true };
-    for (unsigned i = 0; i < sizeof button_states / sizeof *button_states; ++i) {
-        mock_button_down = button_states[i];
-        /* BUTTON_EDGE */
-        assert(calibration_requested == requests[i]);
-    }
-    bool const armed_button_states[] = { false, true, true, false, true };
-    bool const disarmed_states[] = { false, false, true, true, true };
-    bool const armed_requests[] = { false, false, false, false, true };
-    for (unsigned i = 0; i < sizeof armed_button_states / sizeof *armed_button_states; ++i) {
-        mock_button_down = armed_button_states[i];
-        mock_servo_disarmed = disarmed_states[i];
-        /* BUTTON_EDGE */
-        assert(calibration_requested == armed_requests[i]);
-    }
-    puts("Startup order, peripheral/timebase failures and held-button interlock passed.");
+    puts("Startup dependencies, CAN/application initialization and peripheral/timebase failures passed.");
     return 0;
 }

@@ -5,8 +5,8 @@ if (!$Compiler) {
     if (!$found) { throw 'Pass -Compiler with a native GCC executable.' }
     $Compiler = $found.Source
 }
-foreach ($suite in @('startup', 'sensor', 'can', 'servo', 'foc', 'calibration', 'protocol', 'serial', 'telemetry', 'configuration', 'fatal', 'cordic')) {
+foreach ($suite in @('startup', 'sensor', 'can', 'servo', 'app', 'foc', 'calibration', 'protocol', 'serial', 'telemetry', 'configuration', 'fatal', 'cordic')) {
     & (Join-Path $PSScriptRoot "$suite/run.ps1") -Compiler $Compiler
     if ($LASTEXITCODE -ne 0) { throw "Regression suite failed: $suite" }
 }
-Write-Output 'All twelve regression suites passed.'
+Write-Output 'All thirteen regression suites passed.'

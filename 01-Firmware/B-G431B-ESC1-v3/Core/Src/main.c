@@ -26,14 +26,11 @@
 #include "serial.h"
 #include "position_sensor.h"
 #include "foc.h"
-#include "servo_controller.h"
+#include "app.h"
 #include "eeprom.h"
-#include "protocol.h"
 #include "control_table.h"
 #include "can_servo.h"
-#include "telemetry.h"
 #include "drive.h"
-#include <math.h>
 
 /* USER CODE END Includes */
 
@@ -49,16 +46,6 @@
 #define CAN_BUS_TERMINATION_ENABLED 1
 
 // AS5600 over I2C is the only encoder supported by this variant.
-
-// PID loop period in µs
-//  normal setting is 1000us (1KHz)
-//  performance setting is 250 (4KHz)
-#define PID_LOOP_PERIOD 250
-
-// FOC service loop period in µs
-//  normal setting is 10000us (100Hz)
-#define SERVICE_LOOP_PERIOD 10000
-
 
 /* USER CODE END PD */
 
@@ -234,150 +221,19 @@ int main(void)
   // Accept commands only after every motor-control dependency is initialized.
   CanServo_Init(&hfdcan1);
   FDCAN_Config();
+  App_Init(&htim6, &serial);
 //HAL_Serial_Print(&serial,"RESET!\n");
 
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  ServoController_Init();
-  // A button held at power-up must be released before it can request motion.
-  bool calibration_button_was_down = true;
-	uint16_t present_time_us = __HAL_TIM_GET_COUNTER(&htim6);
-	uint16_t pid_last_time_us = present_time_us;
-	uint16_t service_last_time_us = present_time_us;
-	uint32_t pid_counter = 0;
-	uint32_t mlp_counter = 0;
-	while (1)
-	{
+  while (1)
+  {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-
-		Drive_Service();
-
-		// 1 to 4Khz low priority process
-		present_time_us = __HAL_TIM_GET_COUNTER(&htim6);
-		uint16_t const pid_delta_time_us = present_time_us-pid_last_time_us;
-		if(pid_delta_time_us>=PID_LOOP_PERIOD)
-		{
-			pid_last_time_us+=PID_LOOP_PERIOD;
-			++pid_counter;
-
-			// update sensor
-			positionSensor_update();
-			DriveCommandSnapshot const command = Drive_Get_Command();
-			DriveConfig const config = control_read_config();
-
-			ServoSetpoints const setpoints = ServoController_Update(&command, &config,
-					positionSensor_getDegreesMultiturn(), positionSensor_getVelocityDps());
-
-			// RAM Update
-			uint32_t const telemetry_primask = __get_PRIMASK();
-			__disable_irq();
-            DriveMeasurements const measurements = {
-                .position_deg = positionSensor_getDegreesMultiturn(),
-                .velocity_dps = positionSensor_getVelocityDps(),
-                .torque_mA = API_FOC_Get_Present_Torque_Current(),
-                .flux_mA = API_FOC_Get_Present_Flux_Current(),
-                .voltage_V = API_FOC_Get_Present_Voltage(),
-                .temperature_C = API_FOC_Get_Present_Temp(),
-                .moving = fabsf(positionSensor_getVelocityDps()) > (float)config.moving_threshold_dps
-            };
-            Drive_Publish_Measurements(&measurements);
-			__set_PRIMASK(telemetry_primask);
-
-			// DEBUG RAM Update
-			telemetry_store_i16(regs, REG_SETPOINT_POSITION_DEG_L, setpoints.position_deg*10.0f);
-			telemetry_store_i16(regs, REG_SETPOINT_VELOCITY_DPS_L, setpoints.velocity_dps*1.0f);
-			telemetry_store_i16(regs, REG_SETPOINT_TORQUE_CURRENT_MA_L, setpoints.torque_mA*1.0f);
-			telemetry_store_i16(regs, REG_SETPOINT_FLUX_CURRENT_MA_L, setpoints.flux_mA*1.0f);
-			// test new FW
-			regs[REG_PROCESSING_TIME] = telemetry_u8(API_FOC_Get_Processing_Time());
-			regs[REG_FOC_FREQUENCY] = telemetry_u8(API_FOC_Get_Processing_Frequency()/1000.0f);
-			uint32_t const uptime_ms = HAL_GetTick();
-			regs[REG_PID_FREQUENCY] = uptime_ms != 0 ? telemetry_u8((float)pid_counter / (float)uptime_ms) : 0;
-			regs[REG_MLP_FREQUENCY] = uptime_ms != 0 ? telemetry_u8((float)mlp_counter / (float)uptime_ms) : 0;
-
-		} // low priority process 4Khz
-
-		// low priority low frequency
-		uint16_t const service_delta_time_us = present_time_us-service_last_time_us;
-		if(service_delta_time_us>=SERVICE_LOOP_PERIOD)
-		{
-			service_last_time_us+=SERVICE_LOOP_PERIOD;
-
-			// FOC service update
-			if (!control_configuration_valid())
-			{
-				hardware_fault_set(1U << HW_ERROR_BIT_CONFIGURATION);
-				Drive_Disarm();
-			}
-			else hardware_fault_clear(1U << HW_ERROR_BIT_CONFIGURATION);
-			API_FOC_Service_Update();
-
-			// Handle local MMI
-			// Led STATUS
-			HAL_GPIO_WritePin(STATUS_GPIO_Port,STATUS_Pin,(regs[REG_LED]>0)||(hardware_fault_status()>0)?GPIO_PIN_SET:GPIO_PIN_RESET);
-
-			// DEBUG
-//			if(potentiometer_input_adc>200)
-//				regs[REG_TORQUE_ENABLE] = 1;
-//			else
-//				regs[REG_TORQUE_ENABLE] = 0;
-
-			// A new press may request calibration only while already disarmed.
-			bool const calibration_button_down = HAL_GPIO_ReadPin(BUTTON_GPIO_Port,BUTTON_Pin)==GPIO_PIN_RESET;
-			bool const calibration_requested = calibration_button_down && !calibration_button_was_down && Drive_Is_Disarmed();
-			calibration_button_was_down = calibration_button_down;
-			if(calibration_requested)
-			{
-				// start FOC calibration
-				int const result = Drive_Run_Calibration();
-				HAL_Serial_Print(&serial, "Calibration result: %d (0=success, 1=no motion, 2=pole pairs, 3=cancel/fault, 4=storage)\n", result);
-			}
-
-			// Handle serial communication
-			// Bound work to the bytes present now so traffic cannot starve watchdogs.
-			uint32_t serial_remaining = (uint32_t)HAL_Serial_Available(&serial);
-			while(serial_remaining-- != 0 && HAL_Serial_Available(&serial))
-			{
-			  char c = HAL_Serial_GetChar(&serial);
-			  packet_handler(c);
-			}
-		} // low priority process very low frequency
-
-		// PERFORMANCE
-		//uint16_t t_end = __HAL_TIM_GET_COUNTER(&htim6);
-		++mlp_counter;
-
-		// TRACE
-		static uint32_t counter = 0;
-		if(((++counter)%100)==0)
-		{
-//			HAL_Serial_Print(&serial,"%d %d\n",
-//						//(int)(RADIANS_TO_DEGREES(positionSensor_getRadiansMultiturn())*10.0f),
-//						(int)(init_error_data_bits),
-//						(int)(RADIANS_TO_DEGREES(present_position_rad)*10.0f)
-//						//(int)(RADIANS_TO_DEGREES(expected_position)*10.0f)
-//						//(int)(RADIANS_TO_DEGREES(present_velocity_rad)*0.1f)
-//						//(int)(RADIANS_TO_DEGREES(theta_rad)*10.0f)
-//						//(int)(RADIANS_TO_DEGREES(absolute_position_rad)*10.0f)
-//						//regs[REG_PROTOCOL_CRC_FAIL]
-//					);
-
-
-//			HAL_Serial_Print(&serial,"%d %d %d\n",
-//						(int)(setpoint_torque_current_mA),
-//						(int)(API_FOC_Get_Present_Torque_Current()),
-//						(int)(API_FOC_Get_Present_Flux_Current())
-//					);
-
-//			HAL_Serial_Print(&serial,"%d\n",
-//			);
-		}
-
-
+    App_Process();
   }
   /* USER CODE END 3 */
 }

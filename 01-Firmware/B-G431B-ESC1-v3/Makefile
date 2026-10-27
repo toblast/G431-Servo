@@ -36,6 +36,7 @@ BUILD_DIR = build
 ######################################
 # C sources
 C_SOURCES =  \
+Core/Src/app.c \
 Core/Src/as5600.c \
 Core/Src/can_servo.c \
 Core/Src/control_table.c \
