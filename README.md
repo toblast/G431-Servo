@@ -1,5 +1,9 @@
 # G431 servo drive — professional branch
 
+**New to the codebase? Start with the [firmware reading guide](docs/code-guide/README.md).**
+It includes a reading route, module/function/call reference, type meanings and
+source links for the current firmware.
+
 `professional` starts from the tested `simplified` baseline. Its first refactors
 introduce typed application data, a drive supervisor, a separate outer servo
 controller, CAN/application modules, typed motor/fault interfaces, separate

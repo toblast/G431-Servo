@@ -1,5 +1,9 @@
 # Professional firmware architecture
 
+For a first tour of the actual source, use the [firmware reading guide](code-guide/README.md).
+Its [function index](code-guide/function-index.md) and [type catalogue](code-guide/types.md)
+explain every selected Core function/type, including private and platform support.
+
 Branch `professional`, based on `simplified` at `8629fd6`. The first increment
 introduced the typed model and drive supervisor; the second extracted the outer
 servo controller; the third extracted CAN handling; the fourth extracted the
